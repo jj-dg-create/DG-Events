@@ -1,0 +1,141 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Druk Wide Medium — loaded from DG CDN ────────────────────────────── */
+@font-face {
+  font-family: 'Druk Wide';
+  src: url('https://assets.cdn.filesafe.space/a8SvpD1b3VlpgBtRabDn/media/69b480a1bfc81faa1afddc8a.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── GT Pressura — loaded from DG CDN ─────────────────────────────────── */
+@font-face {
+  font-family: 'GT Pressura';
+  src: url('https://assets.cdn.filesafe.space/a8SvpD1b3VlpgBtRabDn/media/69a0d71613b8427674c86e06.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'GT Pressura';
+  src: url('https://assets.cdn.filesafe.space/a8SvpD1b3VlpgBtRabDn/media/69a0d716c4df6592193e1795.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'GT Pressura';
+  src: url('https://assets.cdn.filesafe.space/a8SvpD1b3VlpgBtRabDn/media/69a0d716040fbb39f78a9156.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'GT Pressura';
+  src: url('https://assets.cdn.filesafe.space/a8SvpD1b3VlpgBtRabDn/media/69a0d716b50b9759dede83a5.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ── Base reset ────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #1D1B1C;
+  color: #FEFCF5;
+  font-family: 'GT Pressura', Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-weight: 400;
+}
+
+/* Prevent iOS scroll bounce on iPad */
+body {
+  position: fixed;
+  overflow: hidden;
+  width: 100%;
+}
+
+#root {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  height: 100vh;
+}
+
+/* Remove default input/button styling on iOS */
+input, button, select, textarea {
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: 'GT Pressura', Arial, Helvetica, sans-serif;
+  font-weight: 400;
+}
+
+/* Large touch target for iPad */
+.btn-touch {
+  min-height: 56px;
+  touch-action: manipulation;
+}
+
+/* Flash screen animation */
+@keyframes flashIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.flash-screen {
+  animation: flashIn 0.12s ease-out forwards;
+}
+
+/* PIN pad slide-up */
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.slide-up {
+  animation: slideUp 0.25s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+/* Manager panel slide-up */
+@keyframes panelIn {
+  from { transform: translateY(30px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.panel-in {
+  animation: panelIn 0.2s ease-out forwards;
+}
+
+/* DG label style */
+.dg-label {
+  font-family: 'GT Pressura', Arial, Helvetica, sans-serif;
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #C4C4C4;
+}
+
+/* Accent label (chartreuse) */
+.dg-label-accent {
+  font-family: 'GT Pressura', Arial, Helvetica, sans-serif;
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #DEE548;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #1D1B1C; }
+::-webkit-scrollbar-thumb { background: #333131; border-radius: 2px; }
