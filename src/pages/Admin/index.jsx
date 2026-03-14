@@ -1,7 +1,8 @@
-import { Routes, Route, useNavigate, Navigate } from 'react-router-dom'
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import EventList   from './EventList'
 import EventDetail from './EventDetail'
+import Team        from './Team'
 
 const B    = { canvas: '#1D1B1C', surface: '#262323', border: '#333131', cream: '#FEFCF5', muted: '#C4C4C4', chartreuse: '#DEE548' }
 const font = "'GT Pressura', Arial, Helvetica, sans-serif"
@@ -10,6 +11,8 @@ const lbl  = { fontFamily: font, fontWeight: 400, fontSize: '11px', letterSpacin
 export default function AdminRoot() {
   const { signOut } = useAuth()
   const navigate    = useNavigate()
+  const location    = useLocation()
+  const isTeam = location.pathname.startsWith('/admin/team')
 
   return (
     <div style={{ minHeight: '100vh', background: B.canvas, display: 'flex', flexDirection: 'column' }}>
@@ -27,6 +30,17 @@ export default function AdminRoot() {
           <div style={{ ...lbl, color: B.chartreuse }}>Admin</div>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button onClick={() => navigate('/admin')} style={{
+            background: 'none', border: `1px solid ${!isTeam ? B.chartreuse + '44' : B.border}`, borderRadius: '10px',
+            padding: '8px 16px', color: !isTeam ? B.cream : B.muted, fontFamily: font, fontSize: '13px',
+            letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer',
+          }}>Events</button>
+          <button onClick={() => navigate('/admin/team')} style={{
+            background: 'none', border: `1px solid ${isTeam ? B.chartreuse + '44' : B.border}`, borderRadius: '10px',
+            padding: '8px 16px', color: isTeam ? B.cream : B.muted, fontFamily: font, fontSize: '13px',
+            letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer',
+          }}>Team</button>
+          <div style={{ width: '1px', height: '16px', background: B.border }} />
           <button onClick={() => navigate('/checkin')} style={{
             background: 'none', border: `1px solid ${B.border}`, borderRadius: '10px',
             padding: '8px 16px', color: B.muted, fontFamily: font, fontSize: '13px',
@@ -47,6 +61,7 @@ export default function AdminRoot() {
           <Route index element={<EventList />} />
           <Route path="events" element={<EventList />} />
           <Route path="events/:eventId" element={<EventDetail />} />
+          <Route path="team" element={<Team />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />
         </Routes>
       </div>

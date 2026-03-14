@@ -265,6 +265,11 @@ export default function EventDetail() {
   const [badgeEditColor, setBadgeEditColor] = useState('')
   const [badgeEditName, setBadgeEditName] = useState('')
   const [savingBadge, setSavingBadge] = useState(false)
+  const [showAddBadge, setShowAddBadge] = useState(false)
+  const [newBadgeName, setNewBadgeName] = useState('')
+  const [newBadgeColor, setNewBadgeColor] = useState('#888888')
+  const [newBadgeSortOrder, setNewBadgeSortOrder] = useState(0)
+  const [savingNewBadge, setSavingNewBadge] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -334,6 +339,22 @@ export default function EventDetail() {
     }
     setSavingBadge(false)
     setEditingBadge(null)
+  }
+
+  async function handleAddBadge() {
+    if (!newBadgeName.trim()) return
+    setSavingNewBadge(true)
+    const { data, error } = await supabase.from('badge_types').insert({ event_id: eventId, display_name: newBadgeName.trim(), color: newBadgeColor, sort_order: newBadgeSortOrder }).select().single()
+    if (error) {
+      alert('Error creating badge type: ' + error.message)
+    } else if (data) {
+      setBadgeTypes(prev => [...prev, data])
+    }
+    setSavingNewBadge(false)
+    setShowAddBadge(false)
+    setNewBadgeName('')
+    setNewBadgeColor('#888888')
+    setNewBadgeSortOrder(0)
   }
 
   function exportCSV() {
@@ -426,6 +447,35 @@ export default function EventDetail() {
             </div>
           )
         })}
+        {/* Add Badge Type */}
+        <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: '12px', padding: '16px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'border-color 0.15s' }}
+          onClick={() => { if (!showAddBadge) { setShowAddBadge(true); setNewBadgeName(''); setNewBadgeColor('#888888'); setNewBadgeSortOrder(badgeTypes.length) } }}
+          onMouseEnter={e => e.currentTarget.style.borderColor = B.chartreuse}
+          onMouseLeave={e => e.currentTarget.style.borderColor = B.border}
+        >
+          <div style={{ fontFamily: font, fontSize: '13px', color: B.muted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>+ Add Badge Type</div>
+          {showAddBadge && (
+            <div style={{ position: 'absolute', top: 'calc(100% + 8px)', left: '0', zIndex: 40, background: B.surface, border: `1px solid ${B.border}`, borderRadius: '12px', padding: '16px', width: '220px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} onClick={e => e.stopPropagation()}>
+              <div style={{ ...lbl(), marginBottom: '10px' }}>New Badge Type</div>
+              <div style={{ marginBottom: '10px' }}>
+                <div style={{ ...lbl(), marginBottom: '4px', fontSize: '9px' }}>Display Name</div>
+                <input value={newBadgeName} onChange={e => setNewBadgeName(e.target.value)} placeholder="e.g. VIP" style={{ ...inp(), padding: '8px 10px', fontSize: '13px' }} autoFocus />
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <div style={{ ...lbl(), marginBottom: '4px', fontSize: '9px' }}>Color</div>
+                <input type="color" value={newBadgeColor} onChange={e => setNewBadgeColor(e.target.value)} style={{ width: '100%', height: '36px', border: `1px solid ${B.border}`, borderRadius: '8px', background: B.surface2, cursor: 'pointer', padding: '2px' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ ...lbl(), marginBottom: '4px', fontSize: '9px' }}>Sort Order</div>
+                <input type="number" value={newBadgeSortOrder} onChange={e => setNewBadgeSortOrder(parseInt(e.target.value) || 0)} style={{ ...inp(), padding: '8px 10px', fontSize: '13px' }} />
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => setShowAddBadge(false)} style={{ flex: 1, background: 'none', border: `1px solid ${B.border}`, borderRadius: '8px', padding: '8px', color: B.muted, fontFamily: font, fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={handleAddBadge} disabled={!newBadgeName.trim() || savingNewBadge} style={{ flex: 1, background: B.chartreuse, border: 'none', borderRadius: '8px', padding: '8px', color: B.canvas, fontFamily: font, fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', opacity: (!newBadgeName.trim() || savingNewBadge) ? 0.4 : 1 }}>{savingNewBadge ? 'Saving…' : 'Save'}</button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Filters */}

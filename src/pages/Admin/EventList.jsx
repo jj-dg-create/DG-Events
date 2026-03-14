@@ -6,6 +6,17 @@ const B    = { canvas: '#1D1B1C', surface: '#262323', surface2: '#2E2B2B', borde
 const font = "'GT Pressura', Arial, Helvetica, sans-serif"
 const lbl  = (c = B.muted) => ({ fontFamily: font, fontWeight: 400, fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: c })
 
+function getEventStatus(eventDate) {
+  if (!eventDate) return null
+  const today = new Date().toISOString().slice(0, 10)
+  if (eventDate === today) return 'live'
+  if (eventDate > today) return 'upcoming'
+  return 'completed'
+}
+
+const statusColors = { live: B.chartreuse, upcoming: B.cream, completed: B.muted }
+const statusLabels = { live: 'Live', upcoming: 'Upcoming', completed: 'Completed' }
+
 function NewEventModal({ onSave, onClose }) {
   const [name, setName]         = useState('')
   const [date, setDate]         = useState('')
@@ -72,18 +83,40 @@ function NewEventModal({ onSave, onClose }) {
 }
 
 export default function EventList() {
-  const [events, setEvents]   = useState([])
-  const [loading, setLoading] = useState(true)
-  const [showNew, setShowNew] = useState(false)
+  const [events, setEvents]       = useState([])
+  const [eventStats, setEventStats] = useState({}) // { eventId: { registered, checkedIn } }
+  const [loading, setLoading]     = useState(true)
+  const [showNew, setShowNew]     = useState(false)
   const [managerPin, setManagerPin] = useState('')
-  const [pinSaved, setPinSaved]     = useState(false)
+  const [pinSaved, setPinSaved]   = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
-    supabase.from('events').select('*').order('created_at', { ascending: false })
-      .then(({ data }) => { if (data) setEvents(data) })
-      .catch(err => console.error('Failed to load events:', err))
-      .finally(() => setLoading(false))
+    async function load() {
+      try {
+        const { data: evts } = await supabase.from('events').select('*').order('created_at', { ascending: false })
+        if (!evts) { setLoading(false); return }
+        setEvents(evts)
+
+        // Fetch attendee counts for all events
+        const { data: attendees } = await supabase.from('attendees').select('event_id, checked_in')
+        if (attendees) {
+          const stats = {}
+          attendees.forEach(a => {
+            if (!stats[a.event_id]) stats[a.event_id] = { registered: 0, checkedIn: 0 }
+            stats[a.event_id].registered++
+            if (a.checked_in) stats[a.event_id].checkedIn++
+          })
+          setEventStats(stats)
+        }
+      } catch (err) {
+        console.error('Failed to load events:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+
     supabase.from('settings').select('value').eq('key', 'manager_pin').single()
       .then(({ data }) => { if (data) setManagerPin(data.value) })
       .catch(err => console.error('Failed to load manager pin:', err))
@@ -101,6 +134,11 @@ export default function EventList() {
     navigate(`/admin/events/${event.id}`)
   }
 
+  // Aggregate stats across all events
+  const totalEvents = events.length
+  const totalRegistered = Object.values(eventStats).reduce((s, e) => s + e.registered, 0)
+  const totalCheckedIn = Object.values(eventStats).reduce((s, e) => s + e.checkedIn, 0)
+
   return (
     <div style={{ maxWidth: '720px', margin: '0 auto', padding: '40px 24px' }}>
       {showNew && <NewEventModal onSave={handleCreated} onClose={() => setShowNew(false)} />}
@@ -115,6 +153,24 @@ export default function EventList() {
         }}>+ New Event</button>
       </div>
 
+      {/* Summary stats row */}
+      {!loading && events.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '24px' }}>
+          <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: '12px', padding: '16px 20px' }}>
+            <div style={{ fontFamily: font, fontSize: '28px', color: B.cream, lineHeight: 1 }}>{totalEvents}</div>
+            <div style={lbl()}>Events</div>
+          </div>
+          <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: '12px', padding: '16px 20px' }}>
+            <div style={{ fontFamily: font, fontSize: '28px', color: B.cream, lineHeight: 1 }}>{totalRegistered}</div>
+            <div style={lbl()}>Total Registered</div>
+          </div>
+          <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: '12px', padding: '16px 20px' }}>
+            <div style={{ fontFamily: font, fontSize: '28px', color: B.chartreuse, lineHeight: 1 }}>{totalCheckedIn}</div>
+            <div style={lbl()}>Total Checked In</div>
+          </div>
+        </div>
+      )}
+
       {/* Events list */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '48px 0', color: 'rgba(254,252,245,0.2)', fontFamily: font, fontSize: '14px' }}>Loading…</div>
@@ -128,25 +184,51 @@ export default function EventList() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '48px' }}>
-          {events.map(ev => (
-            <button key={ev.id} onClick={() => navigate(`/admin/events/${ev.id}`)} style={{
-              width: '100%', background: B.surface, border: `1px solid ${B.border}`,
-              borderRadius: '12px', padding: '20px 20px', display: 'flex',
-              alignItems: 'center', justifyContent: 'space-between',
-              textAlign: 'left', cursor: 'pointer', transition: 'border-color 0.15s',
-            }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(222,229,72,0.3)'}
-              onMouseLeave={e => e.currentTarget.style.borderColor = B.border}
-            >
-              <div>
-                <div style={{ fontFamily: font, fontWeight: 400, fontSize: '18px', color: B.cream }}>{ev.name}</div>
-                <div style={{ ...lbl(), marginTop: '4px' }}>
-                  {[ev.location, ev.event_date && new Date(ev.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })].filter(Boolean).join(' · ')}
+          {events.map(ev => {
+            const st = eventStats[ev.id] || { registered: 0, checkedIn: 0 }
+            const pct = st.registered > 0 ? Math.round(st.checkedIn / st.registered * 100) : 0
+            const status = getEventStatus(ev.event_date)
+            return (
+              <button key={ev.id} onClick={() => navigate(`/admin/events/${ev.id}`)} style={{
+                width: '100%', background: B.surface, border: `1px solid ${B.border}`,
+                borderRadius: '12px', padding: '20px', display: 'flex',
+                alignItems: 'center', justifyContent: 'space-between',
+                textAlign: 'left', cursor: 'pointer', transition: 'border-color 0.15s',
+              }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(222,229,72,0.3)'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = B.border}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                    <div style={{ fontFamily: font, fontWeight: 400, fontSize: '18px', color: B.cream }}>{ev.name}</div>
+                    {status && (
+                      <span style={{
+                        fontFamily: font, fontSize: '10px', letterSpacing: '0.1em',
+                        textTransform: 'uppercase', padding: '3px 10px',
+                        borderRadius: '100px',
+                        background: status === 'live' ? 'rgba(222,229,72,0.15)' : 'transparent',
+                        border: `1px solid ${statusColors[status]}33`,
+                        color: statusColors[status],
+                      }}>{statusLabels[status]}</span>
+                    )}
+                  </div>
+                  <div style={{ ...lbl(), marginTop: '2px' }}>
+                    {[ev.location, ev.event_date && new Date(ev.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })].filter(Boolean).join(' · ')}
+                  </div>
                 </div>
-              </div>
-              <span style={{ color: 'rgba(254,252,245,0.15)', fontSize: '18px' }}>→</span>
-            </button>
-          ))}
+                {/* Stats */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0, marginLeft: '16px' }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontFamily: font, fontSize: '18px', color: B.cream, lineHeight: 1 }}>
+                      {st.checkedIn}<span style={{ color: B.muted, fontSize: '12px' }}>/{st.registered}</span>
+                    </div>
+                    <div style={{ ...lbl(), fontSize: '9px', marginTop: '2px' }}>{pct}% checked in</div>
+                  </div>
+                  <span style={{ color: 'rgba(254,252,245,0.15)', fontSize: '18px' }}>→</span>
+                </div>
+              </button>
+            )
+          })}
         </div>
       )}
 

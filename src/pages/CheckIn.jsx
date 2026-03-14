@@ -961,6 +961,13 @@ export default function CheckIn() {
     return () => supabase.removeChannel(ch)
   }, [selectedEvent?.id])
 
+  // ── Rebuild Fuse index whenever attendees change (check-in, undo, real-time)
+  useEffect(() => {
+    if (attendees.length > 0) {
+      fuseRef.current = new Fuse(attendees, { keys: ['first_name', 'last_name'], threshold: 0.35, ignoreLocation: true })
+    }
+  }, [attendees])
+
   // ── Fuzzy search ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!query.trim() || !fuseRef.current) { setResults([]); return }
@@ -1116,11 +1123,16 @@ export default function CheckIn() {
       {/* ── Kiosk Mode Layout ── */}
       {kioskMode ? (
         <>
-          {/* Kiosk header — event name only */}
+          {/* Kiosk header — logo + event name */}
           <div style={{
-            padding: '32px 24px 20px', flexShrink: 0, textAlign: 'center',
+            padding: '28px 24px 20px', flexShrink: 0, textAlign: 'center',
             borderBottom: `1px solid ${B.border}`,
           }}>
+            <img
+              src="https://assets.cdn.filesafe.space/a8SvpD1b3VlpgBtRabDn/media/69a0cf1e13b8426d4dc4a879.png"
+              alt="David Ghiyam"
+              style={{ width: '48px', height: 'auto', marginBottom: '14px', opacity: 0.9 }}
+            />
             <div style={{
               fontFamily: druk, fontWeight: 500,
               fontSize: 'clamp(1.5rem, 4vw, 2.5rem)',
@@ -1238,13 +1250,10 @@ export default function CheckIn() {
             </div>
           </div>
 
-          {/* Kiosk bottom — subtle exit button + stats */}
+          {/* Kiosk bottom — hidden exit button only, no stats */}
           <div style={{
-            flexShrink: 0, padding: '12px 24px 20px',
-            borderTop: `1px solid ${B.border}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            flexShrink: 0, padding: '8px 24px 16px',
           }}>
-            {/* Hidden exit button — bottom left, very subtle */}
             <button
               onClick={() => setShowKioskExit(true)}
               style={{
@@ -1257,10 +1266,6 @@ export default function CheckIn() {
             >
               EXIT
             </button>
-            {/* Minimal stats */}
-            <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.15)', fontSize: '13px' }}>
-              {stats.in}/{stats.total} checked in
-            </div>
           </div>
         </>
       ) : (
@@ -1454,20 +1459,20 @@ export default function CheckIn() {
               <div>
                 <div style={{ fontFamily: font, color: B.cream, fontSize: '22px', lineHeight: 1 }}>
                   {stats.in}
-                  <span style={{ color: 'rgba(254,252,245,0.25)', fontSize: '14px' }}>/{stats.total}</span>
+                  <span style={{ color: B.muted, fontSize: '14px' }}>/{stats.total}</span>
                 </div>
-                <div style={label()}>Total</div>
+                <div style={label(B.muted)}>Total</div>
               </div>
               {/* Divider */}
               <div style={{ width: '1px', height: '32px', background: B.border }} />
               {/* By type */}
               {stats.types.map((bt) => (
                 <div key={bt.id}>
-                  <div style={{ fontFamily: font, fontSize: '20px', lineHeight: 1, color: bt.color === '#1D1B1C' || bt.color === '#1C1C1E' ? B.muted : bt.color }}>
+                  <div style={{ fontFamily: font, fontSize: '20px', lineHeight: 1, color: B.cream }}>
                     {bt.in}
-                    <span style={{ color: 'rgba(254,252,245,0.25)', fontSize: '13px' }}>/{bt.total}</span>
+                    <span style={{ color: B.muted, fontSize: '13px' }}>/{bt.total}</span>
                   </div>
-                  <div style={label()}>{bt.display_name}</div>
+                  <div style={label(B.muted)}>{bt.display_name}</div>
                 </div>
               ))}
             </div>
