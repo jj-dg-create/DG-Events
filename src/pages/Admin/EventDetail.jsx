@@ -268,6 +268,9 @@ export default function EventDetail() {
       if (ev.data) setEvent(ev.data)
       if (bt.data) setBadgeTypes(bt.data)
       if (at.data) setAttendees(at.data)
+    }).catch(err => {
+      console.error('Failed to load event data:', err)
+    }).finally(() => {
       setLoading(false)
     })
   }, [eventId])

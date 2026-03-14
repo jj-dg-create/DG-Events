@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Login     from './pages/Login'
@@ -6,8 +7,15 @@ import AdminRoot from './pages/Admin'
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, role, loading } = useAuth()
+  const [timedOut, setTimedOut] = useState(false)
 
-  if (loading) {
+  useEffect(() => {
+    if (!loading) return
+    const t = setTimeout(() => setTimedOut(true), 5000)
+    return () => clearTimeout(t)
+  }, [loading])
+
+  if (loading && !timedOut) {
     return (
       <div className="flex items-center justify-center h-screen bg-canvas">
         <div className="text-cream/40 text-lg tracking-widest animate-pulse">LOADING…</div>

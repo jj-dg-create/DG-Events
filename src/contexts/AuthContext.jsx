@@ -1,12 +1,22 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
+
+const AUTH_TIMEOUT_MS = 5000
 
 export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null)
   const [role, setRole]       = useState(null)
   const [loading, setLoading] = useState(true)
+  const resolved = useRef(false)
+
+  function finishLoading() {
+    if (!resolved.current) {
+      resolved.current = true
+      setLoading(false)
+    }
+  }
 
   async function fetchProfile(userId) {
     const { data } = await supabase
@@ -18,20 +28,34 @@ export function AuthProvider({ children }) {
   }
 
   useEffect(() => {
-    // Initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    // Safety timeout — never stay loading longer than 5s
+    const timeout = setTimeout(() => {
+      if (!resolved.current) {
+        console.warn('Auth loading timed out after 5s, forcing resolution')
+        finishLoading()
+      }
+    }, AUTH_TIMEOUT_MS)
+
+    // Initial session restore
+    async function initSession() {
       try {
+        const { data: { session }, error } = await supabase.auth.getSession()
+        if (error) throw error
         if (session?.user) {
           setUser(session.user)
           const profile = await fetchProfile(session.user.id)
           setRole(profile?.role || 'staff')
         }
       } catch (err) {
-        console.error('Failed to fetch profile on init:', err)
+        console.error('Failed to restore session:', err)
+        setUser(null)
+        setRole(null)
       } finally {
-        setLoading(false)
+        finishLoading()
       }
-    })
+    }
+
+    initSession()
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -48,12 +72,15 @@ export function AuthProvider({ children }) {
         } catch (err) {
           console.error('Failed to fetch profile on auth change:', err)
         } finally {
-          setLoading(false)
+          finishLoading()
         }
       }
     )
 
-    return () => subscription.unsubscribe()
+    return () => {
+      clearTimeout(timeout)
+      subscription.unsubscribe()
+    }
   }, [])
 
   async function signIn(email, password) {

@@ -81,9 +81,12 @@ export default function EventList() {
 
   useEffect(() => {
     supabase.from('events').select('*').order('created_at', { ascending: false })
-      .then(({ data }) => { if (data) setEvents(data); setLoading(false) })
+      .then(({ data }) => { if (data) setEvents(data) })
+      .catch(err => console.error('Failed to load events:', err))
+      .finally(() => setLoading(false))
     supabase.from('settings').select('value').eq('key', 'manager_pin').single()
       .then(({ data }) => { if (data) setManagerPin(data.value) })
+      .catch(err => console.error('Failed to load manager pin:', err))
   }, [])
 
   async function savePin() {
