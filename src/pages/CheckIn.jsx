@@ -17,6 +17,7 @@ const B = {
 }
 
 const font = "'GT Pressura', Arial, Helvetica, sans-serif"
+const druk = "'Druk Wide', 'GT Pressura', Arial, sans-serif"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getTextColor(hex) {
@@ -61,7 +62,7 @@ function FlashScreen({ flash, onDismiss, onUndo }) {
   }, [flash])
 
   if (!flash) return null
-  const { attendee, badgeType, status } = flash
+  const { attendee, badgeType, status, ticketCount } = flash
 
   // ── Duplicate / already checked in ────────────────────────────────────────
   if (status === 'duplicate') {
@@ -139,7 +140,7 @@ function FlashScreen({ flash, onDismiss, onUndo }) {
       <div style={{ textAlign: 'center', padding: '0 40px', userSelect: 'none' }}>
         {/* Badge type — Druk Wide hero, per design system */}
         <div style={{
-          fontFamily: "'Druk Wide', 'GT Pressura', Arial, sans-serif",
+          fontFamily: druk,
           fontWeight: 500,
           fontSize: 'clamp(2.8rem, 9vw, 5.5rem)',
           letterSpacing: '-0.03em',
@@ -158,11 +159,22 @@ function FlashScreen({ flash, onDismiss, onUndo }) {
         <div style={{
           fontFamily: font, fontWeight: 400,
           fontSize: 'clamp(2rem, 6vw, 3.5rem)',
-          color, lineHeight: 1.05, marginBottom: '28px',
+          color, lineHeight: 1.05, marginBottom: '12px',
           opacity: 0.9,
         }}>
           {attendee.first_name}<br />{attendee.last_name}
         </div>
+
+        {/* Multi-ticket indicator */}
+        {ticketCount && ticketCount > 1 && (
+          <div style={{
+            fontFamily: font, fontSize: '18px',
+            color, opacity: 0.7, marginBottom: '16px',
+            letterSpacing: '0.06em',
+          }}>
+            {ticketCount} tickets
+          </div>
+        )}
 
         {/* Wristband pill */}
         <div style={{
@@ -190,6 +202,98 @@ function FlashScreen({ flash, onDismiss, onUndo }) {
         <div style={{ ...label(color), opacity: 0.3 }}>
           Tap to dismiss — {count}s
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Ticket Selector (multi-ticket, different badge types) ───────────────────
+function TicketSelector({ attendeeName, tickets, badgeTypes, onSelect, onCancel }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 55,
+      background: B.canvas,
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      padding: '40px 24px',
+    }}>
+      <div style={{ textAlign: 'center', width: '100%', maxWidth: '480px' }}>
+        {/* Label */}
+        <div style={{ ...label(B.chartreuse), marginBottom: '24px' }}>
+          Multiple tickets found
+        </div>
+
+        {/* Divider */}
+        <div style={{ height: '3px', background: B.chartreuse, width: '40px', margin: '0 auto 32px' }} />
+
+        {/* Attendee name — large, Druk Wide */}
+        <div style={{
+          fontFamily: druk, fontWeight: 500,
+          fontSize: 'clamp(2rem, 7vw, 3.5rem)',
+          color: B.cream, lineHeight: 0.95,
+          textTransform: 'uppercase',
+          letterSpacing: '-0.02em',
+          marginBottom: '40px',
+        }}>
+          {attendeeName}
+        </div>
+
+        {/* Ticket cards */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '40px' }}>
+          {tickets.map(ticket => {
+            const bt = badgeTypes.find(b => b.id === ticket.badge_type_id)
+            const isCheckedIn = ticket.checked_in
+            return (
+              <button
+                key={ticket.id}
+                onClick={() => !isCheckedIn && onSelect(ticket)}
+                disabled={isCheckedIn}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center',
+                  gap: '16px', background: B.surface,
+                  border: `1px solid ${isCheckedIn ? B.border : B.chartreuse + '44'}`,
+                  borderRadius: '14px', padding: '20px 24px',
+                  cursor: isCheckedIn ? 'default' : 'pointer',
+                  textAlign: 'left',
+                  opacity: isCheckedIn ? 0.4 : 1,
+                  transition: 'border-color 0.15s, transform 0.1s',
+                }}
+              >
+                {/* Color swatch */}
+                <div style={{
+                  width: '32px', height: '32px', borderRadius: '8px',
+                  background: bt?.color || B.muted, flexShrink: 0,
+                }} />
+                {/* Info */}
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: font, color: B.cream, fontSize: '18px', lineHeight: 1.2 }}>
+                    {bt?.display_name || 'No badge type'}
+                  </div>
+                  {isCheckedIn && (
+                    <div style={{ ...label(B.chartreuse), marginTop: '4px' }}>
+                      ✓ Already checked in at {fmt(ticket.checked_in_at)}
+                    </div>
+                  )}
+                </div>
+                {/* Arrow */}
+                {!isCheckedIn && (
+                  <span style={{ color: B.chartreuse, fontSize: '22px', flexShrink: 0 }}>→</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Cancel */}
+        <button onClick={onCancel} style={{
+          background: 'none', border: `1px solid ${B.border}`,
+          borderRadius: '10px', padding: '14px 32px',
+          color: B.muted, fontFamily: font, fontSize: '13px',
+          letterSpacing: '0.08em', textTransform: 'uppercase',
+          cursor: 'pointer',
+        }}>
+          Cancel
+        </button>
       </div>
     </div>
   )
@@ -665,6 +769,84 @@ function WalkUpModal({ badgeTypes, onSave, onClose }) {
   )
 }
 
+// ─── Kiosk Exit PIN Prompt ───────────────────────────────────────────────────
+function KioskExitPin({ correctPin, onSuccess, onClose }) {
+  const [entered, setEntered] = useState('')
+  const [shake, setShake]     = useState(false)
+  const MAX = correctPin.length || 4
+
+  function press(digit) {
+    if (entered.length >= MAX) return
+    const next = entered + digit
+    setEntered(next)
+    if (next.length === MAX) {
+      if (next === correctPin) {
+        setTimeout(onSuccess, 120)
+      } else {
+        setShake(true)
+        setTimeout(() => { setShake(false); setEntered('') }, 600)
+      }
+    }
+  }
+
+  function del() { setEntered(p => p.slice(0, -1)) }
+
+  const keys = ['1','2','3','4','5','6','7','8','9','','0','⌫']
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 70,
+      background: 'rgba(29,27,28,0.95)', backdropFilter: 'blur(12px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }} onClick={onClose}>
+      <div style={{
+        background: B.surface, borderRadius: '20px',
+        padding: '28px 24px 32px', width: '100%', maxWidth: '320px',
+        border: `1px solid ${B.border}`,
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ ...label(B.chartreuse), marginBottom: '8px', textAlign: 'center' }}>Exit Kiosk Mode</div>
+        <div style={{ fontFamily: font, color: B.muted, fontSize: '13px', textAlign: 'center', marginBottom: '24px' }}>
+          Enter manager PIN to exit
+        </div>
+
+        {/* PIN dots */}
+        <div style={{
+          display: 'flex', justifyContent: 'center', gap: '14px', marginBottom: '28px',
+          ...(shake ? { animation: 'shake 0.4s ease' } : {}),
+        }}>
+          {Array.from({ length: MAX }).map((_, i) => (
+            <div key={i} style={{
+              width: '14px', height: '14px', borderRadius: '50%',
+              background: i < entered.length ? B.chartreuse : B.border,
+              transition: 'background 0.1s',
+            }} />
+          ))}
+        </div>
+
+        {/* Keypad */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+          {keys.map((k, i) => (
+            k === '' ? <div key={i} /> :
+            <button
+              key={i}
+              onClick={() => k === '⌫' ? del() : press(k)}
+              style={{
+                background: k === '⌫' ? 'transparent' : B.surface2,
+                border: k === '⌫' ? `1px solid ${B.border}` : 'none',
+                borderRadius: '10px', padding: '16px 0',
+                color: k === '⌫' ? B.muted : B.cream,
+                fontFamily: font, fontWeight: 400,
+                fontSize: k === '⌫' ? '18px' : '22px',
+                cursor: 'pointer', touchAction: 'manipulation',
+              }}
+            >{k}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main CheckIn Page ────────────────────────────────────────────────────────
 export default function CheckIn() {
   const { user, role, signOut } = useAuth()
@@ -679,6 +861,7 @@ export default function CheckIn() {
   const [query, setQuery]               = useState('')
   const [results, setResults]           = useState([])
   const [flash, setFlash]               = useState(null)
+  const [ticketSelector, setTicketSelector] = useState(null) // { name, tickets }
   const [showWalkup, setShowWalkup]     = useState(false)
   const [showEvents, setShowEvents]     = useState(false)
   const [showPin, setShowPin]           = useState(false)
@@ -686,7 +869,45 @@ export default function CheckIn() {
   const [managerPin, setManagerPin]     = useState('1234') // fetched from settings
   const [loadingEvent, setLoadingEvent] = useState(false)
 
+  // Kiosk mode state
+  const [kioskMode, setKioskMode]       = useState(() => localStorage.getItem('dg_kiosk_mode') === 'true')
+  const [showKioskExit, setShowKioskExit] = useState(false)
+
   const inputRef = useRef(null)
+
+  // ── Kiosk fullscreen management ─────────────────────────────────────────
+  useEffect(() => {
+    if (kioskMode) {
+      document.documentElement.requestFullscreen?.().catch(() => {})
+    }
+  }, [kioskMode])
+
+  // Listen for fullscreen exit (e.g. Escape key) — sync kiosk state
+  useEffect(() => {
+    function onFsChange() {
+      if (!document.fullscreenElement && kioskMode) {
+        // User pressed Escape to exit fullscreen — keep kiosk mode but re-enter fullscreen
+        // (some browsers block this; if so, just leave it)
+        document.documentElement.requestFullscreen?.().catch(() => {})
+      }
+    }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [kioskMode])
+
+  function enterKiosk() {
+    setKioskMode(true)
+    localStorage.setItem('dg_kiosk_mode', 'true')
+  }
+
+  function exitKiosk() {
+    setKioskMode(false)
+    setShowKioskExit(false)
+    localStorage.removeItem('dg_kiosk_mode')
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {})
+    }
+  }
 
   // ── Fetch events + manager PIN ─────────────────────────────────────────────
   useEffect(() => {
@@ -746,10 +967,65 @@ export default function CheckIn() {
     setResults(fuseRef.current.search(query.trim(), { limit: 6 }).map(r => r.item))
   }, [query, attendees])
 
-  // ── Check in ──────────────────────────────────────────────────────────────
+  // ── Smart multi-ticket check-in ────────────────────────────────────────────
   const handleSelect = useCallback(async (attendee) => {
-    const badgeType = badgeTypes.find(bt => bt.id === attendee.badge_type_id) || null
     setQuery(''); setResults([]); inputRef.current?.blur()
+
+    // Find all attendees with the same first+last name in this event
+    const fullName = `${attendee.first_name.toLowerCase()} ${attendee.last_name.toLowerCase()}`
+    const sameNameRecords = attendees.filter(a =>
+      `${a.first_name.toLowerCase()} ${a.last_name.toLowerCase()}` === fullName
+    )
+
+    // Single ticket — original behavior
+    if (sameNameRecords.length <= 1) {
+      return checkInSingle(attendee)
+    }
+
+    // Multiple tickets — check if all are already checked in (Scenario C)
+    const allCheckedIn = sameNameRecords.every(a => a.checked_in)
+    if (allCheckedIn) {
+      const badgeType = badgeTypes.find(bt => bt.id === attendee.badge_type_id) || null
+      setFlash({ attendee, badgeType, status: 'duplicate' })
+      return
+    }
+
+    // Multiple tickets — check badge type diversity
+    const uncheckedRecords = sameNameRecords.filter(a => !a.checked_in)
+    const uniqueBadgeTypes = new Set(uncheckedRecords.map(a => a.badge_type_id))
+
+    if (uniqueBadgeTypes.size <= 1) {
+      // Scenario A — same badge type: auto check-in one, show count
+      const toCheckIn = uncheckedRecords[0]
+      const badgeType = badgeTypes.find(bt => bt.id === toCheckIn.badge_type_id) || null
+      const ticketCount = sameNameRecords.filter(a => a.badge_type_id === toCheckIn.badge_type_id).length
+
+      const at = new Date().toISOString()
+      setAttendees(prev => prev.map(a => a.id === toCheckIn.id ? { ...a, checked_in: true, checked_in_at: at } : a))
+      setFlash({
+        attendee: { ...toCheckIn, checked_in: true, checked_in_at: at },
+        badgeType,
+        status: 'success',
+        ticketCount,
+      })
+
+      const { error } = await supabase.from('attendees').update({ checked_in: true, checked_in_at: at }).eq('id', toCheckIn.id)
+      if (error) {
+        setAttendees(prev => prev.map(a => a.id === toCheckIn.id ? { ...a, checked_in: false, checked_in_at: null } : a))
+        setFlash(null); alert('Check-in failed — please try again.')
+      }
+    } else {
+      // Scenario B — different badge types: show ticket selector
+      setTicketSelector({
+        name: `${attendee.first_name} ${attendee.last_name}`,
+        tickets: sameNameRecords,
+      })
+    }
+  }, [badgeTypes, attendees])
+
+  // Check in a single attendee record
+  const checkInSingle = useCallback(async (attendee) => {
+    const badgeType = badgeTypes.find(bt => bt.id === attendee.badge_type_id) || null
 
     if (attendee.checked_in) {
       setFlash({ attendee, badgeType, status: 'duplicate' }); return
@@ -765,6 +1041,12 @@ export default function CheckIn() {
       setFlash(null); alert('Check-in failed — please try again.')
     }
   }, [badgeTypes])
+
+  // Handle ticket selector choice (Scenario B)
+  const handleTicketSelect = useCallback(async (ticket) => {
+    setTicketSelector(null)
+    await checkInSingle(ticket)
+  }, [checkInSingle])
 
   // ── Undo check-in ──────────────────────────────────────────────────────────
   const handleUndo = useCallback(async (attendee) => {
@@ -816,221 +1098,393 @@ export default function CheckIn() {
     }}>
       {/* Overlays */}
       {flash      && <FlashScreen flash={flash} onDismiss={() => { setFlash(null); setTimeout(() => inputRef.current?.focus(), 100) }} onUndo={handleUndo} />}
+      {ticketSelector && (
+        <TicketSelector
+          attendeeName={ticketSelector.name}
+          tickets={ticketSelector.tickets}
+          badgeTypes={badgeTypes}
+          onSelect={handleTicketSelect}
+          onCancel={() => setTicketSelector(null)}
+        />
+      )}
       {showWalkup && <WalkUpModal badgeTypes={badgeTypes} onSave={handleWalkup} onClose={() => setShowWalkup(false)} />}
-      {showEvents && <EventSelector events={events} current={selectedEvent} onSelect={ev => { setSelectedEvent(ev); setShowEvents(false) }} onClose={() => setShowEvents(false)} />}
-      {showPin    && <PinPad correctPin={managerPin} onSuccess={() => { setShowPin(false); setShowManager(true) }} onClose={() => setShowPin(false)} />}
-      {showManager && <ManagerPanel badgeTypes={badgeTypes} eventId={selectedEvent?.id} attendees={attendees} onClose={() => setShowManager(false)} onRefresh={handleRefresh} />}
+      {showEvents && !kioskMode && <EventSelector events={events} current={selectedEvent} onSelect={ev => { setSelectedEvent(ev); setShowEvents(false) }} onClose={() => setShowEvents(false)} />}
+      {showPin    && !kioskMode && <PinPad correctPin={managerPin} onSuccess={() => { setShowPin(false); setShowManager(true) }} onClose={() => setShowPin(false)} />}
+      {showManager && !kioskMode && <ManagerPanel badgeTypes={badgeTypes} eventId={selectedEvent?.id} attendees={attendees} onClose={() => setShowManager(false)} onRefresh={handleRefresh} />}
+      {showKioskExit && <KioskExitPin correctPin={managerPin} onSuccess={exitKiosk} onClose={() => setShowKioskExit(false)} />}
 
-      {/* ── Header ── */}
-      <header style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '20px 20px 12px', flexShrink: 0,
-        borderBottom: `1px solid ${B.border}`,
-      }}>
-        {/* Brand */}
-        <div>
-          <div style={{ fontFamily: font, fontWeight: 400, fontSize: '18px', color: B.cream, letterSpacing: '-0.01em', lineHeight: 1 }}>
-            David Ghiyam
-          </div>
-          <div style={{ ...label(B.chartreuse), marginTop: '3px' }}>Event Check-In</div>
-        </div>
-
-        {/* Event selector */}
-        <button onClick={() => setShowEvents(true)} style={{
-          background: B.surface, border: `1px solid ${B.border}`,
-          borderRadius: '10px', padding: '10px 16px', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '200px',
-        }}>
-          <span style={{ fontFamily: font, color: B.cream, fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {selectedEvent?.name || 'Select Event'}
-          </span>
-          <span style={{ color: B.muted, fontSize: '12px', flexShrink: 0 }}>▾</span>
-        </button>
-
-        {/* Right controls */}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button
-            onClick={() => setShowPin(true)}
-            title="Manager Mode"
-            style={{
-              background: B.surface, border: `1px solid ${B.border}`,
-              borderRadius: '10px', padding: '10px 14px', cursor: 'pointer',
-              fontFamily: font, color: B.chartreuse, fontSize: '13px',
-              letterSpacing: '0.06em', textTransform: 'uppercase',
-            }}
-          >
-            Mgr
-          </button>
-          {role === 'admin' && (
-            <button onClick={() => navigate('/admin')} style={{
-              background: B.surface, border: `1px solid ${B.border}`,
-              borderRadius: '10px', padding: '10px 14px', cursor: 'pointer',
-              fontFamily: font, color: B.muted, fontSize: '13px',
-            }}>Admin</button>
-          )}
-          <button onClick={signOut} style={{
-            background: 'none', border: `1px solid ${B.border}`,
-            borderRadius: '10px', padding: '10px 14px', cursor: 'pointer',
-            fontFamily: font, color: 'rgba(254,252,245,0.25)', fontSize: '13px',
-          }}>Out</button>
-        </div>
-      </header>
-
-      {/* ── Search input ── */}
-      <div style={{ padding: '16px 20px 8px', flexShrink: 0 }}>
-        <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: '18px', top: '50%', transform: 'translateY(-50%)', fontSize: '18px', opacity: 0.3, pointerEvents: 'none' }}>
-            ⌕
-          </span>
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder={
-              loadingEvent ? 'Loading attendees…' :
-              selectedEvent ? `Search ${attendees.length} attendees…` : 'Select an event first'
-            }
-            disabled={!selectedEvent || loadingEvent}
-            autoComplete="off" autoCorrect="off" autoCapitalize="words" spellCheck={false}
-            style={{
-              width: '100%', background: B.surface,
-              border: `2px solid ${query ? B.chartreuse : B.border}`,
-              borderRadius: '12px',
-              padding: '18px 48px 18px 48px',
-              color: B.cream, fontSize: '20px',
-              fontFamily: font, fontWeight: 400,
-              outline: 'none', transition: 'border-color 0.15s',
-              opacity: (!selectedEvent || loadingEvent) ? 0.4 : 1,
-            }}
-          />
-          {query && (
-            <button onClick={() => { setQuery(''); inputRef.current?.focus() }} style={{
-              position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)',
-              background: 'none', border: 'none', color: B.muted, fontSize: '22px',
-              cursor: 'pointer', fontFamily: font, width: '32px', height: '32px',
-            }}>×</button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Results ── */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 20px 8px' }}>
-        {results.length > 0 && query && results.map(a => {
-          const bt = badgeTypes.find(b => b.id === a.badge_type_id)
-          return (
-            <button
-              key={a.id}
-              onClick={() => handleSelect(a)}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                background: B.surface, border: `1px solid ${B.border}`,
-                borderRadius: '12px', padding: '18px 20px', marginBottom: '8px',
-                cursor: 'pointer', textAlign: 'left',
-                opacity: a.checked_in ? 0.45 : 1,
-                transition: 'border-color 0.1s',
-              }}
-              onMouseEnter={e => !a.checked_in && (e.currentTarget.style.borderColor = 'rgba(222,229,72,0.3)')}
-              onMouseLeave={e => e.currentTarget.style.borderColor = B.border}
-            >
-              <div>
-                <div style={{ fontFamily: font, fontWeight: 400, fontSize: '20px', color: B.cream, lineHeight: 1.2 }}>
-                  {a.first_name} {a.last_name}
-                </div>
-                {a.email && <div style={{ ...label(), marginTop: '3px' }}>{a.email}</div>}
-                {a.checked_in && (
-                  <div style={{ ...label(B.chartreuse), marginTop: '3px' }}>
-                    ✓ Checked in at {fmt(a.checked_in_at)}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0, marginLeft: '16px' }}>
-                {bt && (
-                  <div style={{
-                    background: bt.color, color: getTextColor(bt.color),
-                    padding: '6px 14px', borderRadius: '100px',
-                    fontFamily: font, fontSize: '11px', letterSpacing: '0.1em',
-                    textTransform: 'uppercase', whiteSpace: 'nowrap',
-                  }}>{bt.display_name}</div>
-                )}
-                {!a.checked_in && (
-                  <span style={{ color: 'rgba(254,252,245,0.15)', fontSize: '20px' }}>→</span>
-                )}
-              </div>
-            </button>
-          )
-        })}
-
-        {/* Empty states */}
-        {!query && !loadingEvent && selectedEvent && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', textAlign: 'center' }}>
-            <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.12)', fontSize: '48px', marginBottom: '12px' }}>⌨</div>
-            <div style={{ fontFamily: "'Druk Wide', 'GT Pressura', Arial, sans-serif", fontWeight: 500, color: 'rgba(254,252,245,0.08)', fontSize: 'clamp(2rem, 6vw, 3.2rem)', letterSpacing: '-0.02em', textTransform: 'uppercase', lineHeight: 0.9, marginBottom: '14px' }}>Check In</div>
-            <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.25)', fontSize: '16px' }}>Type a name to search</div>
-            <div style={{ ...label(), marginTop: '4px' }}>{attendees.length} attendees loaded</div>
-          </div>
-        )}
-
-        {query && results.length === 0 && !loadingEvent && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', textAlign: 'center' }}>
-            <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.2)', fontSize: '36px', marginBottom: '12px' }}>?</div>
-            <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.5)', fontSize: '17px', marginBottom: '4px' }}>
-              No match for "{query}"
-            </div>
-            <div style={{ ...label(), marginBottom: '20px' }}>Name may not be in the system</div>
-            <button onClick={() => setShowWalkup(true)} style={{
-              background: B.chartreuse, color: B.canvas, border: 'none',
-              borderRadius: '10px', padding: '14px 24px',
-              fontFamily: font, fontSize: '13px', letterSpacing: '0.1em',
-              textTransform: 'uppercase', cursor: 'pointer',
+      {/* ── Kiosk Mode Layout ── */}
+      {kioskMode ? (
+        <>
+          {/* Kiosk header — event name only */}
+          <div style={{
+            padding: '32px 24px 20px', flexShrink: 0, textAlign: 'center',
+            borderBottom: `1px solid ${B.border}`,
+          }}>
+            <div style={{
+              fontFamily: druk, fontWeight: 500,
+              fontSize: 'clamp(1.5rem, 4vw, 2.5rem)',
+              color: B.cream, letterSpacing: '-0.02em',
+              textTransform: 'uppercase', lineHeight: 1,
             }}>
-              + Add as Walk-Up
+              {selectedEvent?.name || 'Event Check-In'}
+            </div>
+            <div style={{ height: '3px', background: B.chartreuse, width: '48px', margin: '12px auto 0' }} />
+          </div>
+
+          {/* Kiosk search — large and prominent */}
+          <div style={{ padding: '24px 24px 12px', flexShrink: 0 }}>
+            <div style={{ position: 'relative', maxWidth: '700px', margin: '0 auto' }}>
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Type your name to check in"
+                disabled={!selectedEvent || loadingEvent}
+                autoComplete="off" autoCorrect="off" autoCapitalize="words" spellCheck={false}
+                style={{
+                  width: '100%', background: B.surface,
+                  border: `2px solid ${query ? B.chartreuse : B.border}`,
+                  borderRadius: '16px',
+                  padding: '24px 60px 24px 24px',
+                  color: B.cream, fontSize: 'clamp(20px, 3vw, 28px)',
+                  fontFamily: font, fontWeight: 400,
+                  outline: 'none', transition: 'border-color 0.15s',
+                  opacity: (!selectedEvent || loadingEvent) ? 0.4 : 1,
+                }}
+              />
+              {query && (
+                <button onClick={() => { setQuery(''); inputRef.current?.focus() }} style={{
+                  position: 'absolute', right: '20px', top: '50%', transform: 'translateY(-50%)',
+                  background: 'none', border: 'none', color: B.muted, fontSize: '28px',
+                  cursor: 'pointer', fontFamily: font, width: '40px', height: '40px',
+                }}>×</button>
+              )}
+            </div>
+          </div>
+
+          {/* Kiosk results */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '4px 24px 8px' }}>
+            <div style={{ maxWidth: '700px', margin: '0 auto' }}>
+              {results.length > 0 && query && results.map(a => {
+                const bt = badgeTypes.find(b => b.id === a.badge_type_id)
+                return (
+                  <button
+                    key={a.id}
+                    onClick={() => handleSelect(a)}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      background: B.surface, border: `1px solid ${B.border}`,
+                      borderRadius: '14px', padding: '22px 24px', marginBottom: '10px',
+                      cursor: 'pointer', textAlign: 'left',
+                      opacity: a.checked_in ? 0.45 : 1,
+                      transition: 'border-color 0.1s',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontFamily: font, fontWeight: 400, fontSize: '24px', color: B.cream, lineHeight: 1.2 }}>
+                        {a.first_name} {a.last_name}
+                      </div>
+                      {a.checked_in && (
+                        <div style={{ ...label(B.chartreuse), marginTop: '4px' }}>
+                          ✓ Checked in
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0, marginLeft: '16px' }}>
+                      {bt && (
+                        <div style={{
+                          background: bt.color, color: getTextColor(bt.color),
+                          padding: '8px 18px', borderRadius: '100px',
+                          fontFamily: font, fontSize: '12px', letterSpacing: '0.1em',
+                          textTransform: 'uppercase', whiteSpace: 'nowrap',
+                        }}>{bt.display_name}</div>
+                      )}
+                      {!a.checked_in && (
+                        <span style={{ color: 'rgba(254,252,245,0.15)', fontSize: '24px' }}>→</span>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+
+              {/* Kiosk empty state */}
+              {!query && !loadingEvent && selectedEvent && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', textAlign: 'center' }}>
+                  <div style={{
+                    fontFamily: druk, fontWeight: 500,
+                    color: 'rgba(254,252,245,0.06)',
+                    fontSize: 'clamp(3rem, 8vw, 5rem)',
+                    letterSpacing: '-0.02em',
+                    textTransform: 'uppercase',
+                    lineHeight: 0.9,
+                    marginBottom: '20px',
+                  }}>Check In</div>
+                  <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.2)', fontSize: '18px' }}>
+                    Type your name above
+                  </div>
+                </div>
+              )}
+
+              {query && results.length === 0 && !loadingEvent && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 0', textAlign: 'center' }}>
+                  <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.4)', fontSize: '20px', marginBottom: '8px' }}>
+                    No match for "{query}"
+                  </div>
+                  <div style={{ ...label(), marginBottom: '4px' }}>Please check your spelling or ask staff for help</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Kiosk bottom — subtle exit button + stats */}
+          <div style={{
+            flexShrink: 0, padding: '12px 24px 20px',
+            borderTop: `1px solid ${B.border}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            {/* Hidden exit button — bottom left, very subtle */}
+            <button
+              onClick={() => setShowKioskExit(true)}
+              style={{
+                background: 'none', border: 'none',
+                color: 'rgba(254,252,245,0.06)',
+                fontFamily: font, fontSize: '11px',
+                cursor: 'pointer', padding: '8px 12px',
+                letterSpacing: '0.06em',
+              }}
+            >
+              EXIT
+            </button>
+            {/* Minimal stats */}
+            <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.15)', fontSize: '13px' }}>
+              {stats.in}/{stats.total} checked in
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* ── Normal Header ── */}
+          <header style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '20px 20px 12px', flexShrink: 0,
+            borderBottom: `1px solid ${B.border}`,
+          }}>
+            {/* Brand */}
+            <div>
+              <div style={{ fontFamily: font, fontWeight: 400, fontSize: '18px', color: B.cream, letterSpacing: '-0.01em', lineHeight: 1 }}>
+                David Ghiyam
+              </div>
+              <div style={{ ...label(B.chartreuse), marginTop: '3px' }}>Event Check-In</div>
+            </div>
+
+            {/* Event selector */}
+            <button onClick={() => setShowEvents(true)} style={{
+              background: B.surface, border: `1px solid ${B.border}`,
+              borderRadius: '10px', padding: '10px 16px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '200px',
+            }}>
+              <span style={{ fontFamily: font, color: B.cream, fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {selectedEvent?.name || 'Select Event'}
+              </span>
+              <span style={{ color: B.muted, fontSize: '12px', flexShrink: 0 }}>▾</span>
+            </button>
+
+            {/* Right controls */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                onClick={() => setShowPin(true)}
+                title="Manager Mode"
+                style={{
+                  background: B.surface, border: `1px solid ${B.border}`,
+                  borderRadius: '10px', padding: '10px 14px', cursor: 'pointer',
+                  fontFamily: font, color: B.chartreuse, fontSize: '13px',
+                  letterSpacing: '0.06em', textTransform: 'uppercase',
+                }}
+              >
+                Mgr
+              </button>
+              {role === 'admin' && (
+                <>
+                  <button onClick={enterKiosk} title="Enter Kiosk Mode" style={{
+                    background: B.surface, border: `1px solid ${B.border}`,
+                    borderRadius: '10px', padding: '10px 14px', cursor: 'pointer',
+                    fontFamily: font, color: B.chartreuse, fontSize: '13px',
+                    letterSpacing: '0.06em', textTransform: 'uppercase',
+                  }}>Kiosk</button>
+                  <button onClick={() => navigate('/admin')} style={{
+                    background: B.surface, border: `1px solid ${B.border}`,
+                    borderRadius: '10px', padding: '10px 14px', cursor: 'pointer',
+                    fontFamily: font, color: B.muted, fontSize: '13px',
+                  }}>Admin</button>
+                </>
+              )}
+              <button onClick={signOut} style={{
+                background: 'none', border: `1px solid ${B.border}`,
+                borderRadius: '10px', padding: '10px 14px', cursor: 'pointer',
+                fontFamily: font, color: 'rgba(254,252,245,0.25)', fontSize: '13px',
+              }}>Out</button>
+            </div>
+          </header>
+
+          {/* ── Search input ── */}
+          <div style={{ padding: '16px 20px 8px', flexShrink: 0 }}>
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: '18px', top: '50%', transform: 'translateY(-50%)', fontSize: '18px', opacity: 0.3, pointerEvents: 'none' }}>
+                ⌕
+              </span>
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder={
+                  loadingEvent ? 'Loading attendees…' :
+                  selectedEvent ? `Search ${attendees.length} attendees…` : 'Select an event first'
+                }
+                disabled={!selectedEvent || loadingEvent}
+                autoComplete="off" autoCorrect="off" autoCapitalize="words" spellCheck={false}
+                style={{
+                  width: '100%', background: B.surface,
+                  border: `2px solid ${query ? B.chartreuse : B.border}`,
+                  borderRadius: '12px',
+                  padding: '18px 48px 18px 48px',
+                  color: B.cream, fontSize: '20px',
+                  fontFamily: font, fontWeight: 400,
+                  outline: 'none', transition: 'border-color 0.15s',
+                  opacity: (!selectedEvent || loadingEvent) ? 0.4 : 1,
+                }}
+              />
+              {query && (
+                <button onClick={() => { setQuery(''); inputRef.current?.focus() }} style={{
+                  position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)',
+                  background: 'none', border: 'none', color: B.muted, fontSize: '22px',
+                  cursor: 'pointer', fontFamily: font, width: '32px', height: '32px',
+                }}>×</button>
+              )}
+            </div>
+          </div>
+
+          {/* ── Results ── */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '4px 20px 8px' }}>
+            {results.length > 0 && query && results.map(a => {
+              const bt = badgeTypes.find(b => b.id === a.badge_type_id)
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => handleSelect(a)}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    background: B.surface, border: `1px solid ${B.border}`,
+                    borderRadius: '12px', padding: '18px 20px', marginBottom: '8px',
+                    cursor: 'pointer', textAlign: 'left',
+                    opacity: a.checked_in ? 0.45 : 1,
+                    transition: 'border-color 0.1s',
+                  }}
+                  onMouseEnter={e => !a.checked_in && (e.currentTarget.style.borderColor = 'rgba(222,229,72,0.3)')}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = B.border}
+                >
+                  <div>
+                    <div style={{ fontFamily: font, fontWeight: 400, fontSize: '20px', color: B.cream, lineHeight: 1.2 }}>
+                      {a.first_name} {a.last_name}
+                    </div>
+                    {a.email && <div style={{ ...label(), marginTop: '3px' }}>{a.email}</div>}
+                    {a.checked_in && (
+                      <div style={{ ...label(B.chartreuse), marginTop: '3px' }}>
+                        ✓ Checked in at {fmt(a.checked_in_at)}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0, marginLeft: '16px' }}>
+                    {bt && (
+                      <div style={{
+                        background: bt.color, color: getTextColor(bt.color),
+                        padding: '6px 14px', borderRadius: '100px',
+                        fontFamily: font, fontSize: '11px', letterSpacing: '0.1em',
+                        textTransform: 'uppercase', whiteSpace: 'nowrap',
+                      }}>{bt.display_name}</div>
+                    )}
+                    {!a.checked_in && (
+                      <span style={{ color: 'rgba(254,252,245,0.15)', fontSize: '20px' }}>→</span>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
+
+            {/* Empty states */}
+            {!query && !loadingEvent && selectedEvent && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', textAlign: 'center' }}>
+                <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.12)', fontSize: '48px', marginBottom: '12px' }}>⌨</div>
+                <div style={{ fontFamily: druk, fontWeight: 500, color: 'rgba(254,252,245,0.08)', fontSize: 'clamp(2rem, 6vw, 3.2rem)', letterSpacing: '-0.02em', textTransform: 'uppercase', lineHeight: 0.9, marginBottom: '14px' }}>Check In</div>
+                <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.25)', fontSize: '16px' }}>Type a name to search</div>
+                <div style={{ ...label(), marginTop: '4px' }}>{attendees.length} attendees loaded</div>
+              </div>
+            )}
+
+            {query && results.length === 0 && !loadingEvent && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', textAlign: 'center' }}>
+                <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.2)', fontSize: '36px', marginBottom: '12px' }}>?</div>
+                <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.5)', fontSize: '17px', marginBottom: '4px' }}>
+                  No match for "{query}"
+                </div>
+                <div style={{ ...label(), marginBottom: '20px' }}>Name may not be in the system</div>
+                <button onClick={() => setShowWalkup(true)} style={{
+                  background: B.chartreuse, color: B.canvas, border: 'none',
+                  borderRadius: '10px', padding: '14px 24px',
+                  fontFamily: font, fontSize: '13px', letterSpacing: '0.1em',
+                  textTransform: 'uppercase', cursor: 'pointer',
+                }}>
+                  + Add as Walk-Up
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ── Bottom bar ── */}
+          <div style={{
+            flexShrink: 0, padding: '12px 20px 20px',
+            borderTop: `1px solid ${B.border}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            {/* Live stats */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
+              {/* Total */}
+              <div>
+                <div style={{ fontFamily: font, color: B.cream, fontSize: '22px', lineHeight: 1 }}>
+                  {stats.in}
+                  <span style={{ color: 'rgba(254,252,245,0.25)', fontSize: '14px' }}>/{stats.total}</span>
+                </div>
+                <div style={label()}>Total</div>
+              </div>
+              {/* Divider */}
+              <div style={{ width: '1px', height: '32px', background: B.border }} />
+              {/* By type */}
+              {stats.types.map((bt) => (
+                <div key={bt.id}>
+                  <div style={{ fontFamily: font, fontSize: '20px', lineHeight: 1, color: bt.color === '#1D1B1C' || bt.color === '#1C1C1E' ? B.muted : bt.color }}>
+                    {bt.in}
+                    <span style={{ color: 'rgba(254,252,245,0.25)', fontSize: '13px' }}>/{bt.total}</span>
+                  </div>
+                  <div style={label()}>{bt.display_name}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Walk-up */}
+            <button onClick={() => setShowWalkup(true)} disabled={!selectedEvent} style={{
+              background: 'none', border: `1px solid ${B.border}`,
+              borderRadius: '10px', padding: '12px 18px', cursor: 'pointer',
+              fontFamily: font, color: B.chartreuse, fontSize: '13px',
+              letterSpacing: '0.08em', textTransform: 'uppercase',
+              opacity: !selectedEvent ? 0.3 : 1, whiteSpace: 'nowrap',
+            }}>
+              + Walk-Up
             </button>
           </div>
-        )}
-      </div>
-
-      {/* ── Bottom bar ── */}
-      <div style={{
-        flexShrink: 0, padding: '12px 20px 20px',
-        borderTop: `1px solid ${B.border}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
-        {/* Live stats */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
-          {/* Total */}
-          <div>
-            <div style={{ fontFamily: font, color: B.cream, fontSize: '22px', lineHeight: 1 }}>
-              {stats.in}
-              <span style={{ color: 'rgba(254,252,245,0.25)', fontSize: '14px' }}>/{stats.total}</span>
-            </div>
-            <div style={label()}>Total</div>
-          </div>
-          {/* Divider */}
-          <div style={{ width: '1px', height: '32px', background: B.border }} />
-          {/* By type */}
-          {stats.types.map((bt, i) => (
-            <div key={bt.id}>
-              <div style={{ fontFamily: font, fontSize: '20px', lineHeight: 1, color: bt.color === '#1D1B1C' || bt.color === '#1C1C1E' ? B.muted : bt.color }}>
-                {bt.in}
-                <span style={{ color: 'rgba(254,252,245,0.25)', fontSize: '13px' }}>/{bt.total}</span>
-              </div>
-              <div style={label()}>{bt.display_name}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Walk-up */}
-        <button onClick={() => setShowWalkup(true)} disabled={!selectedEvent} style={{
-          background: 'none', border: `1px solid ${B.border}`,
-          borderRadius: '10px', padding: '12px 18px', cursor: 'pointer',
-          fontFamily: font, color: B.chartreuse, fontSize: '13px',
-          letterSpacing: '0.08em', textTransform: 'uppercase',
-          opacity: !selectedEvent ? 0.3 : 1, whiteSpace: 'nowrap',
-        }}>
-          + Walk-Up
-        </button>
-      </div>
+        </>
+      )}
     </div>
   )
 }

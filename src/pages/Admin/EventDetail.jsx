@@ -258,6 +258,13 @@ export default function EventDetail() {
   const [editingAttendee, setEditingAttendee] = useState(null)
   const [showCSV, setShowCSV]     = useState(false)
   const [focusSearch, setFocusSearch] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [editingBadge, setEditingBadge] = useState(null)
+  const [badgeEditColor, setBadgeEditColor] = useState('')
+  const [badgeEditName, setBadgeEditName] = useState('')
+  const [savingBadge, setSavingBadge] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -303,6 +310,30 @@ export default function EventDetail() {
       total: attendees.filter(a => a.badge_type_id === bt.id).length,
       in:    attendees.filter(a => a.badge_type_id === bt.id && a.checked_in).length,
     }))
+  }
+
+  async function handleDeleteEvent() {
+    setDeleting(true)
+    const { error } = await supabase.from('events').delete().eq('id', eventId)
+    if (error) {
+      alert('Error deleting event: ' + error.message)
+      setDeleting(false)
+    } else {
+      navigate('/admin')
+    }
+  }
+
+  async function handleSaveBadge() {
+    if (!editingBadge) return
+    setSavingBadge(true)
+    const { data, error } = await supabase.from('badge_types').update({ display_name: badgeEditName.trim(), color: badgeEditColor }).eq('id', editingBadge.id).select().single()
+    if (error) {
+      alert('Error updating badge type: ' + error.message)
+    } else if (data) {
+      setBadgeTypes(prev => prev.map(bt => bt.id === data.id ? data : bt))
+    }
+    setSavingBadge(false)
+    setEditingBadge(null)
   }
 
   function exportCSV() {
@@ -358,9 +389,15 @@ export default function EventDetail() {
         {stats.types.map(bt => {
           const p = bt.total > 0 ? Math.round(bt.in/bt.total*100) : 0
           return (
-            <div key={bt.id} style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: '12px', padding: '16px' }}>
+            <div key={bt.id} style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: '12px', padding: '16px', position: 'relative' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: bt.color, flexShrink: 0 }} />
+                <div
+                  onClick={() => { setEditingBadge(bt); setBadgeEditColor(bt.color || '#888888'); setBadgeEditName(bt.display_name) }}
+                  style={{ width: '12px', height: '12px', borderRadius: '50%', background: bt.color, flexShrink: 0, cursor: 'pointer', border: '2px solid rgba(254,252,245,0.15)', transition: 'transform 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.3)'}
+                  onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                  title="Edit badge type"
+                />
                 <div style={{ ...lbl(), fontSize: '10px' }}>{bt.display_name}</div>
               </div>
               <div style={{ fontFamily: font, fontSize: '24px', color: B.cream, lineHeight: 1 }}>
@@ -369,6 +406,23 @@ export default function EventDetail() {
               <div style={{ height: '2px', background: B.border, borderRadius: '100px', marginTop: '8px' }}>
                 <div style={{ height: '100%', background: bt.color, borderRadius: '100px', width: `${p}%`, transition: 'width 0.5s ease' }} />
               </div>
+              {editingBadge?.id === bt.id && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 8px)', left: '0', zIndex: 40, background: B.surface, border: `1px solid ${B.border}`, borderRadius: '12px', padding: '16px', width: '220px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} onClick={e => e.stopPropagation()}>
+                  <div style={{ ...lbl(), marginBottom: '10px' }}>Edit Badge Type</div>
+                  <div style={{ marginBottom: '10px' }}>
+                    <div style={{ ...lbl(), marginBottom: '4px', fontSize: '9px' }}>Color</div>
+                    <input type="color" value={badgeEditColor} onChange={e => setBadgeEditColor(e.target.value)} style={{ width: '100%', height: '36px', border: `1px solid ${B.border}`, borderRadius: '8px', background: B.surface2, cursor: 'pointer', padding: '2px' }} />
+                  </div>
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ ...lbl(), marginBottom: '4px', fontSize: '9px' }}>Display Name</div>
+                    <input value={badgeEditName} onChange={e => setBadgeEditName(e.target.value)} style={{ ...inp(), padding: '8px 10px', fontSize: '13px' }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={() => setEditingBadge(null)} style={{ flex: 1, background: 'none', border: `1px solid ${B.border}`, borderRadius: '8px', padding: '8px', color: B.muted, fontFamily: font, fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={handleSaveBadge} disabled={!badgeEditName.trim() || savingBadge} style={{ flex: 1, background: B.chartreuse, border: 'none', borderRadius: '8px', padding: '8px', color: B.canvas, fontFamily: font, fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', opacity: (!badgeEditName.trim() || savingBadge) ? 0.4 : 1 }}>{savingBadge ? 'Saving…' : 'Save'}</button>
+                  </div>
+                </div>
+              )}
             </div>
           )
         })}
@@ -443,6 +497,39 @@ export default function EventDetail() {
           </div>
         )}
       </div>
+
+      {/* Delete Event */}
+      <div style={{ marginTop: '48px', paddingTop: '24px', borderTop: `1px solid ${B.border}`, display: 'flex', justifyContent: 'flex-end' }}>
+        <button onClick={() => { setShowDeleteModal(true); setDeleteConfirmText('') }} style={{ background: 'none', border: `1px solid rgba(180,40,40,0.3)`, borderRadius: '10px', padding: '10px 20px', color: '#F87171', fontFamily: font, fontSize: '12px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', transition: 'background 0.15s' }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(180,40,40,0.1)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'none'}
+        >Delete Event</button>
+      </div>
+
+      {/* Delete Event Modal */}
+      {showDeleteModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(29,27,28,0.88)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', overflowY: 'auto' }} onClick={() => setShowDeleteModal(false)}>
+          <div style={{ background: B.surface, borderRadius: '16px', width: '100%', maxWidth: '440px', padding: '24px', border: `1px solid ${B.border}` }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div style={lbl('#F87171')}>Delete Event</div>
+              <button onClick={() => setShowDeleteModal(false)} style={{ background: 'none', border: 'none', color: B.muted, fontSize: '22px', cursor: 'pointer', fontFamily: font }}>×</button>
+            </div>
+            <div style={{ fontFamily: font, color: B.cream, fontSize: '14px', lineHeight: 1.6, marginBottom: '20px' }}>
+              This will permanently delete <strong>{event.name}</strong> and all <strong>{attendees.length}</strong> attendee{attendees.length !== 1 ? 's' : ''}. Type the event name to confirm.
+            </div>
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ ...lbl(), marginBottom: '6px' }}>Event Name</div>
+              <input value={deleteConfirmText} onChange={e => setDeleteConfirmText(e.target.value)} placeholder={event.name} style={inp(deleteConfirmText === event.name)} autoFocus />
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => setShowDeleteModal(false)} style={{ flex: 1, background: 'none', border: `1px solid ${B.border}`, borderRadius: '10px', padding: '14px', color: B.muted, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={handleDeleteEvent} disabled={deleteConfirmText !== event.name || deleting} style={{ flex: 2, background: deleteConfirmText === event.name ? '#DC2626' : 'rgba(180,40,40,0.2)', border: 'none', borderRadius: '10px', padding: '14px', color: deleteConfirmText === event.name ? '#FEFCF5' : 'rgba(248,113,113,0.4)', fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: deleteConfirmText === event.name ? 'pointer' : 'not-allowed', transition: 'all 0.15s' }}>
+                {deleting ? 'Deleting…' : 'Delete Permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
