@@ -496,6 +496,7 @@ export default function EventDetail() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button onClick={() => navigate(`/admin/dashboard?event=${eventId}`)} style={{ ...selStyle, textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: '12px' }}>📊 Dashboard</button>
           <button onClick={() => setShowCSV(true)} style={{ ...selStyle, textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: '12px' }}>📥 Import CSV</button>
           <button onClick={exportCSV} style={{ ...selStyle, textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: '12px' }}>📤 Export</button>
           <button onClick={() => setEditingAttendee({})} style={{ background: B.chartreuse, border: 'none', borderRadius: '10px', padding: '10px 18px', color: B.canvas, fontFamily: font, fontSize: '12px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>+ Add</button>
