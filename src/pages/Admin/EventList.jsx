@@ -8,7 +8,8 @@ const lbl  = (c = B.muted) => ({ fontFamily: font, fontWeight: 400, fontSize: '1
 
 function getEventStatus(eventDate) {
   if (!eventDate) return null
-  const today = new Date().toISOString().slice(0, 10)
+  // Use local timezone for date comparison (en-CA gives YYYY-MM-DD format)
+  const today = new Date().toLocaleDateString('en-CA')
   if (eventDate === today) return 'live'
   if (eventDate > today) return 'upcoming'
   return 'completed'

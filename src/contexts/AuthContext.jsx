@@ -1,29 +1,10 @@
-// ─── DIAGNOSIS (2026-03-13) ──────────────────────────────────────────────────
+// ─── Auth Context ────────────────────────────────────────────────────────────
 //
-// ROOT CAUSE: Race condition between initSession() and onAuthStateChange().
-//
-// On hard refresh, BOTH code paths fire concurrently:
-//   1. initSession() calls getSession() → gets session → starts fetchProfile()
-//   2. onAuthStateChange fires INITIAL_SESSION → starts a SECOND fetchProfile()
-//
-// Two concurrent fetchProfile() calls race. If either fails:
-//   - initSession's catch: wiped user/role to null (too aggressive — user IS
-//     authenticated, only the profile fetch failed)
-//   - onAuthStateChange's catch: didn't reset role, but the fallback
-//     `profile?.role || 'staff'` would downgrade admin → staff if data was null
-//
-// Whichever handler finished LAST overwrote the state from the first,
-// regardless of the `resolved` ref (which only gated setLoading, not
-// setUser/setRole). So an admin could see their role flicker from 'admin'
-// to 'staff' or null after the page had already rendered.
-//
-// FIX:
-//   - Single code path: onAuthStateChange handles ALL events (including
-//     INITIAL_SESSION), getSession() is only a timeout fallback
-//   - Fetch counter ref: late-arriving profile responses from stale fetches
-//     are discarded
-//   - Role cached in localStorage: survives transient fetch failures
-//   - Profile fetch failure no longer wipes the user — uses cached role
+// Single code path: onAuthStateChange handles ALL events (including
+// INITIAL_SESSION), getSession() is only a timeout fallback.
+// Fetch counter ref discards stale profile responses.
+// Role cached in-memory only (not localStorage — that's exploitable).
+// Profile fetch failure uses last known role, never wipes authenticated user.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
@@ -32,14 +13,14 @@ import { supabase } from '../lib/supabase'
 const AuthContext = createContext(null)
 
 const AUTH_TIMEOUT_MS = 5000
-const ROLE_CACHE_KEY = 'dg_cached_role'
 
 export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null)
-  const [role, setRole]       = useState(() => localStorage.getItem(ROLE_CACHE_KEY))
+  const [role, setRole]       = useState(null)
   const [loading, setLoading] = useState(true)
   const fetchCounter = useRef(0)
   const sessionHandled = useRef(false)
+  const lastKnownRole = useRef(null)
 
   async function fetchProfile(userId) {
     const { data } = await supabase
@@ -52,9 +33,11 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let mounted = true
+    // Reset refs on each mount (handles StrictMode double-mount)
+    fetchCounter.current = 0
+    sessionHandled.current = false
 
     async function handleSession(session) {
-      // Increment counter — any in-flight fetch with a stale id is ignored
       const id = ++fetchCounter.current
       sessionHandled.current = true
 
@@ -62,43 +45,37 @@ export function AuthProvider({ children }) {
         setUser(session.user)
         try {
           const profile = await fetchProfile(session.user.id)
-          if (!mounted || id !== fetchCounter.current) return // stale
+          if (!mounted || id !== fetchCounter.current) return
           const newRole = profile?.role || 'staff'
           setRole(newRole)
-          localStorage.setItem(ROLE_CACHE_KEY, newRole)
+          lastKnownRole.current = newRole
         } catch (err) {
-          if (!mounted || id !== fetchCounter.current) return // stale
-          console.error('Profile fetch failed, using cached role:', err)
-          // User IS authenticated — don't wipe their session.
-          // Fall back to cached role or default.
-          const cached = localStorage.getItem(ROLE_CACHE_KEY)
-          setRole(cached || 'staff')
+          if (!mounted || id !== fetchCounter.current) return
+          console.error('Profile fetch failed, using last known role:', err)
+          setRole(lastKnownRole.current || 'staff')
         }
       } else {
         setUser(null)
         setRole(null)
-        localStorage.removeItem(ROLE_CACHE_KEY)
+        lastKnownRole.current = null
       }
 
       if (mounted) setLoading(false)
     }
 
-    // Safety timeout — never stay loading longer than 5s
     const timeout = setTimeout(() => {
-      if (mounted && loading) {
+      if (mounted) {
         console.warn('Auth loading timed out after 5s, forcing resolution')
         setLoading(false)
       }
     }, AUTH_TIMEOUT_MS)
 
-    // Single listener handles ALL auth events including INITIAL_SESSION
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         if (mounted) handleSession(session)
       }
     )
 
-    // Fallback: if onAuthStateChange hasn't fired within 1s, use getSession
     const fallback = setTimeout(() => {
       if (!sessionHandled.current && mounted) {
         supabase.auth.getSession()
@@ -128,7 +105,7 @@ export function AuthProvider({ children }) {
   }
 
   async function signOut() {
-    localStorage.removeItem(ROLE_CACHE_KEY)
+    lastKnownRole.current = null
     await supabase.auth.signOut()
   }
 

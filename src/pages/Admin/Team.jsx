@@ -5,6 +5,14 @@ const B    = { canvas: '#1D1B1C', surface: '#262323', surface2: '#2E2B2B', borde
 const font = "'GT Pressura', Arial, Helvetica, sans-serif"
 const lbl  = (c = B.muted) => ({ fontFamily: font, fontWeight: 400, fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: c })
 
+// Magic link redirect URL — must match Supabase Auth → URL Configuration → Redirect URLs
+// In Supabase dashboard: Authentication → URL Configuration:
+//   Site URL: https://dg-events-g8ru.vercel.app
+//   Redirect URLs: https://dg-events-g8ru.vercel.app/**
+const REDIRECT_URL = typeof window !== 'undefined'
+  ? `${window.location.origin}/checkin`
+  : 'https://dg-events-g8ru.vercel.app/checkin'
+
 function InviteModal({ onInvited, onClose }) {
   const [email, setEmail]     = useState('')
   const [sending, setSending] = useState(false)
@@ -25,12 +33,15 @@ function InviteModal({ onInvited, onClose }) {
     try {
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: email.trim(),
-        options: { shouldCreateUser: true },
+        options: {
+          shouldCreateUser: true,
+          emailRedirectTo: REDIRECT_URL,
+        },
       })
       if (otpError) throw otpError
       onInvited(email.trim())
     } catch (err) {
-      setError(err.message || 'Failed to send invite')
+      setError(err.message || 'Failed to send invite. Check Supabase email settings.')
     } finally {
       setSending(false)
     }
@@ -56,15 +67,15 @@ function InviteModal({ onInvited, onClose }) {
             onKeyDown={e => e.key === 'Enter' && handleInvite()}
           />
         </div>
-        <p style={{ ...lbl(), color: 'rgba(254,252,245,0.25)', marginBottom: '16px', lineHeight: 1.5 }}>
-          A magic link will be sent to this email. Once they sign in, they will appear in the team list with a default staff role.
+        <p style={{ fontFamily: font, fontSize: '13px', color: B.muted, marginBottom: '16px', lineHeight: 1.5 }}>
+          A magic link will be sent to this email. Once they sign in, a profile will be created automatically with staff role.
         </p>
         {error && (
-          <div style={{ fontFamily: font, fontSize: '13px', color: '#F87171', marginBottom: '12px' }}>{error}</div>
+          <div style={{ fontFamily: font, fontSize: '13px', color: '#F87171', marginBottom: '12px', background: 'rgba(180,40,40,0.1)', border: '1px solid rgba(180,40,40,0.3)', borderRadius: '8px', padding: '10px 14px' }}>{error}</div>
         )}
         <div style={{ display: 'flex', gap: '10px' }}>
-          <button onClick={onClose} style={{ flex: 1, background: 'none', border: `1px solid ${B.border}`, borderRadius: '10px', padding: '14px', color: B.muted, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>Cancel</button>
-          <button onClick={handleInvite} disabled={!email.trim() || sending} style={{ flex: 2, background: B.chartreuse, border: 'none', borderRadius: '10px', padding: '14px', color: B.canvas, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', opacity: (!email.trim() || sending) ? 0.4 : 1 }}>
+          <button onClick={onClose} style={{ flex: 1, background: 'none', border: `1px solid ${B.border}`, borderRadius: '10px', padding: '14px', color: B.muted, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', minHeight: '56px' }}>Cancel</button>
+          <button onClick={handleInvite} disabled={!email.trim() || sending} style={{ flex: 2, background: B.chartreuse, border: 'none', borderRadius: '10px', padding: '14px', color: B.canvas, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', opacity: (!email.trim() || sending) ? 0.4 : 1, minHeight: '56px' }}>
             {sending ? 'Sending…' : 'Send Invite'}
           </button>
         </div>
@@ -76,6 +87,7 @@ function InviteModal({ onInvited, onClose }) {
 export default function Team() {
   const [users, setUsers]       = useState([])
   const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState(null)
   const [showInvite, setShowInvite] = useState(false)
   const [invited, setInvited]   = useState(null)
 
@@ -85,35 +97,47 @@ export default function Team() {
 
   async function loadUsers() {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, full_name, role, email')
-      .order('created_at', { ascending: false })
-    if (error) console.error('Failed to load team:', error)
-    if (data) setUsers(data)
-    setLoading(false)
+    setError(null)
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, email')
+        .order('created_at', { ascending: false })
+      if (fetchError) throw fetchError
+      setUsers(data || [])
+    } catch (err) {
+      console.error('Failed to load team:', err)
+      setError('Failed to load team members. You may not have permission to view profiles.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function updateRole(userId, newRole) {
+    const prev = users.find(u => u.id === userId)?.role
+    // Optimistic update
+    setUsers(p => p.map(u => u.id === userId ? { ...u, role: newRole } : u))
     const { error } = await supabase
       .from('profiles')
       .update({ role: newRole })
       .eq('id', userId)
     if (error) {
       console.error('Failed to update role:', error)
-      return
+      // Revert
+      setUsers(p => p.map(u => u.id === userId ? { ...u, role: prev } : u))
+      alert('Failed to update role: ' + error.message)
     }
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
   }
 
   async function removeUser(userId, name) {
-    if (!window.confirm(`Remove ${name || 'this user'} from the team? This deletes their profile.`)) return
+    if (!window.confirm(`Remove ${name || 'this user'} from the team? This deletes their profile but not their auth account.`)) return
     const { error } = await supabase
       .from('profiles')
       .delete()
       .eq('id', userId)
     if (error) {
       console.error('Failed to remove user:', error)
+      alert('Failed to remove user: ' + error.message)
       return
     }
     setUsers(prev => prev.filter(u => u.id !== userId))
@@ -122,21 +146,8 @@ export default function Team() {
   function handleInvited(email) {
     setShowInvite(false)
     setInvited(email)
-    setTimeout(() => setInvited(null), 4000)
+    setTimeout(() => setInvited(null), 6000)
   }
-
-  const rolePill = (role) => ({
-    display: 'inline-block',
-    padding: '4px 10px',
-    borderRadius: '999px',
-    fontFamily: font,
-    fontSize: '11px',
-    fontWeight: 400,
-    letterSpacing: '0.12em',
-    textTransform: 'uppercase',
-    background: role === 'admin' ? B.chartreuse : B.muted,
-    color: B.canvas,
-  })
 
   return (
     <div style={{ maxWidth: '720px', margin: '0 auto', padding: '40px 24px' }}>
@@ -148,7 +159,7 @@ export default function Team() {
         <button onClick={() => setShowInvite(true)} style={{
           background: B.chartreuse, border: 'none', borderRadius: '10px',
           padding: '12px 20px', color: B.canvas, fontFamily: font, fontSize: '13px',
-          letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer',
+          letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', minHeight: '56px',
         }}>+ Invite Staff</button>
       </div>
 
@@ -158,94 +169,89 @@ export default function Team() {
           background: 'rgba(222,229,72,0.1)', border: `1px solid ${B.chartreuse}`,
           borderRadius: '10px', padding: '14px 18px', marginBottom: '16px',
           fontFamily: font, fontSize: '14px', color: B.chartreuse,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
-          Magic link sent to {invited}
+          <span>Magic link sent to {invited}</span>
+          <button onClick={() => setInvited(null)} style={{ background: 'none', border: 'none', color: B.chartreuse, fontFamily: font, fontSize: '18px', cursor: 'pointer' }}>×</button>
+        </div>
+      )}
+
+      {/* Error banner */}
+      {error && (
+        <div style={{
+          background: 'rgba(180,40,40,0.1)', border: '1px solid rgba(180,40,40,0.3)',
+          borderRadius: '10px', padding: '14px 18px', marginBottom: '16px',
+          fontFamily: font, fontSize: '14px', color: '#F87171',
+        }}>
+          {error}
         </div>
       )}
 
       {/* Users list */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '48px 0', color: 'rgba(254,252,245,0.2)', fontFamily: font, fontSize: '14px' }}>Loading…</div>
-      ) : users.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '48px 0', color: B.muted, fontFamily: font, fontSize: '14px' }}>Loading…</div>
+      ) : users.length === 0 && !error ? (
         <div style={{ textAlign: 'center', padding: '64px 24px', background: B.surface, border: `1px solid ${B.border}`, borderRadius: '16px' }}>
-          <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.5)', fontSize: '18px', marginBottom: '8px' }}>No team members yet</div>
+          <div style={{ fontFamily: font, color: B.muted, fontSize: '18px', marginBottom: '8px' }}>No team members yet</div>
           <div style={lbl()}>Invite your first staff member to get started</div>
-          <button onClick={() => setShowInvite(true)} style={{ marginTop: '20px', background: B.chartreuse, border: 'none', borderRadius: '10px', padding: '14px 24px', color: B.canvas, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>
+          <button onClick={() => setShowInvite(true)} style={{ marginTop: '20px', background: B.chartreuse, border: 'none', borderRadius: '10px', padding: '14px 24px', color: B.canvas, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', minHeight: '56px' }}>
             Invite First Member
           </button>
         </div>
       ) : (
-        <>
-          {/* Column headers */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 100px 40px', gap: '12px', padding: '0 20px', marginBottom: '8px' }}>
-            <div style={lbl()}>Name</div>
-            <div style={lbl()}>Role</div>
-            <div />
-            <div />
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {users.map(user => (
-              <div key={user.id} style={{
-                background: B.surface, border: `1px solid ${B.border}`,
-                borderRadius: '12px', padding: '16px 20px',
-                display: 'grid', gridTemplateColumns: '1fr 120px 100px 40px',
-                gap: '12px', alignItems: 'center',
-              }}>
-                {/* Name & email */}
-                <div>
-                  <div style={{ fontFamily: font, fontWeight: 400, fontSize: '16px', color: B.cream }}>
-                    {user.full_name || 'Unnamed'}
-                  </div>
-                  <div style={{ ...lbl(), marginTop: '2px', fontSize: '10px' }}>
-                    {user.email || user.id.slice(0, 8) + '…'}
-                  </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {users.map(user => (
+            <div key={user.id} style={{
+              background: B.surface, border: `1px solid ${B.border}`,
+              borderRadius: '12px', padding: '16px 20px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: '12px',
+            }}>
+              {/* Name & email */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: font, fontWeight: 400, fontSize: '16px', color: B.cream }}>
+                  {user.full_name || 'Unnamed'}
                 </div>
-
-                {/* Role dropdown */}
-                <div>
-                  <select
-                    value={user.role || 'staff'}
-                    onChange={e => updateRole(user.id, e.target.value)}
-                    style={{
-                      appearance: 'none', WebkitAppearance: 'none',
-                      background: user.role === 'admin' ? B.chartreuse : B.muted,
-                      color: B.canvas, border: 'none', borderRadius: '999px',
-                      padding: '5px 12px', fontFamily: font, fontSize: '11px',
-                      fontWeight: 400, letterSpacing: '0.12em', textTransform: 'uppercase',
-                      cursor: 'pointer', outline: 'none',
-                    }}
-                  >
-                    <option value="staff">Staff</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                <div style={{ ...lbl(), marginTop: '2px', fontSize: '10px' }}>
+                  {user.email || user.id.slice(0, 8) + '…'}
                 </div>
-
-                {/* Role pill (static display) */}
-                <div style={{ textAlign: 'center' }}>
-                  <span style={rolePill(user.role || 'staff')}>
-                    {user.role || 'staff'}
-                  </span>
-                </div>
-
-                {/* Remove button */}
-                <button
-                  onClick={() => removeUser(user.id, user.full_name)}
-                  title="Remove user"
-                  style={{
-                    background: 'none', border: 'none', color: 'rgba(254,252,245,0.15)',
-                    fontSize: '18px', cursor: 'pointer', fontFamily: font,
-                    padding: '4px', borderRadius: '6px', transition: 'color 0.15s',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.color = '#F87171'}
-                  onMouseLeave={e => e.currentTarget.style.color = 'rgba(254,252,245,0.15)'}
-                >
-                  ×
-                </button>
               </div>
-            ))}
-          </div>
-        </>
+
+              {/* Role dropdown styled as pill */}
+              <select
+                value={user.role || 'staff'}
+                onChange={e => updateRole(user.id, e.target.value)}
+                style={{
+                  appearance: 'none', WebkitAppearance: 'none',
+                  background: user.role === 'admin' ? B.chartreuse : B.muted,
+                  color: B.canvas, border: 'none', borderRadius: '999px',
+                  padding: '6px 14px', fontFamily: font, fontSize: '11px',
+                  fontWeight: 400, letterSpacing: '0.12em', textTransform: 'uppercase',
+                  cursor: 'pointer', outline: 'none', minHeight: '32px',
+                }}
+              >
+                <option value="staff">Staff</option>
+                <option value="admin">Admin</option>
+              </select>
+
+              {/* Remove button */}
+              <button
+                onClick={() => removeUser(user.id, user.full_name)}
+                title="Remove user"
+                style={{
+                  background: 'none', border: 'none', color: 'rgba(254,252,245,0.15)',
+                  fontSize: '18px', cursor: 'pointer', fontFamily: font,
+                  padding: '8px', borderRadius: '6px', transition: 'color 0.15s',
+                  minWidth: '40px', minHeight: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+                onMouseEnter={e => e.currentTarget.style.color = '#F87171'}
+                onMouseLeave={e => e.currentTarget.style.color = 'rgba(254,252,245,0.15)'}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )

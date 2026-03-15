@@ -18,6 +18,12 @@ function fmt(iso) {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+function fmtFull(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
 function inp(focus = false) {
   return { width: '100%', background: B.surface, border: `1px solid ${focus ? B.chartreuse : B.border}`, borderRadius: '10px', padding: '12px 14px', color: B.cream, fontSize: '15px', fontFamily: font, fontWeight: 400, outline: 'none', transition: 'border-color 0.15s' }
 }
@@ -115,7 +121,7 @@ function AttendeeModal({ attendee, badgeTypes, eventId, onSave, onClose }) {
 }
 
 // ── CSV Upload ─────────────────────────────────────────────────────────────────
-function CSVUpload({ badgeTypes, eventId, onImported, onClose }) {
+function CSVUpload({ badgeTypes, eventId, existingAttendees, onImported, onClose }) {
   const [step, setStep]     = useState('upload')
   const [rows, setRows]     = useState([])
   const [columns, setColumns] = useState([])
@@ -123,6 +129,8 @@ function CSVUpload({ badgeTypes, eventId, onImported, onClose }) {
   const [preview, setPreview] = useState([])
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState(null)
+  const [duplicates, setDuplicates] = useState([])
+  const [toInsert, setToInsert] = useState([])
 
   function handleFile(e) {
     const file = e.target.files[0]; if (!file) return
@@ -147,16 +155,52 @@ function CSVUpload({ badgeTypes, eventId, onImported, onClose }) {
     return badgeTypes.find(bt => bt.display_name.toLowerCase().includes(l) || l.includes(bt.display_name.toLowerCase())) || null
   }
 
-  async function handleImport() {
-    setImporting(true)
-    const toInsert = rows.map(r => ({ event_id: eventId, first_name: (r[mapping.first_name]||'').trim(), last_name: (r[mapping.last_name]||'').trim(), email: (r[mapping.email]||'').trim()||null, phone: (r[mapping.phone]||'').trim()||null, badge_type_id: resolveBadge(r[mapping.badge_type])?.id||null, checked_in: false })).filter(r => r.first_name && r.last_name)
-    let inserted = 0, errors = 0
-    for (let i = 0; i < toInsert.length; i += 100) {
-      const { error } = await supabase.from('attendees').insert(toInsert.slice(i, i+100))
-      if (error) errors++; else inserted += Math.min(100, toInsert.length - i)
+  function buildInsertRows() {
+    return rows.map(r => ({ event_id: eventId, first_name: (r[mapping.first_name]||'').trim(), last_name: (r[mapping.last_name]||'').trim(), email: (r[mapping.email]||'').trim()||null, phone: (r[mapping.phone]||'').trim()||null, badge_type_id: resolveBadge(r[mapping.badge_type])?.id||null, checked_in: false })).filter(r => r.first_name && r.last_name)
+  }
+
+  function checkDuplicates() {
+    const insertRows = buildInsertRows()
+    const existingKeys = new Set(
+      existingAttendees.map(a => `${a.first_name.toLowerCase().trim()}|${a.last_name.toLowerCase().trim()}`)
+    )
+    const dupes = insertRows.filter(r =>
+      existingKeys.has(`${r.first_name.toLowerCase()}|${r.last_name.toLowerCase()}`)
+    )
+    if (dupes.length > 0) {
+      setDuplicates(dupes)
+      setToInsert(insertRows)
+      setStep('duplicates')
+    } else {
+      setToInsert(insertRows)
+      doImport(insertRows)
     }
-    setResult({ inserted, errors, total: toInsert.length }); setStep('done')
+  }
+
+  async function doImport(rowsToInsert) {
+    setImporting(true)
+    setStep('importing')
+    let inserted = 0, errors = 0
+    for (let i = 0; i < rowsToInsert.length; i += 100) {
+      const { error } = await supabase.from('attendees').insert(rowsToInsert.slice(i, i+100))
+      if (error) errors++; else inserted += Math.min(100, rowsToInsert.length - i)
+    }
+    setResult({ inserted, errors, total: rowsToInsert.length }); setStep('done')
     setImporting(false); onImported()
+  }
+
+  function handleImportAll() {
+    doImport(toInsert)
+  }
+
+  function handleSkipDuplicates() {
+    const existingKeys = new Set(
+      existingAttendees.map(a => `${a.first_name.toLowerCase().trim()}|${a.last_name.toLowerCase().trim()}`)
+    )
+    const filtered = toInsert.filter(r =>
+      !existingKeys.has(`${r.first_name.toLowerCase()}|${r.last_name.toLowerCase()}`)
+    )
+    doImport(filtered)
   }
 
   const selStyle = { width: '100%', background: B.surface, border: `1px solid ${B.border}`, borderRadius: '10px', padding: '10px 12px', color: B.cream, fontSize: '14px', fontFamily: font, outline: 'none', colorScheme: 'dark' }
@@ -222,10 +266,39 @@ function CSVUpload({ badgeTypes, eventId, onImported, onClose }) {
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
               <button onClick={() => setStep('map')} style={{ flex: 1, background: 'none', border: `1px solid ${B.border}`, borderRadius: '10px', padding: '12px', color: B.muted, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>Back</button>
-              <button onClick={handleImport} disabled={importing} style={{ flex: 2, background: B.chartreuse, border: 'none', borderRadius: '10px', padding: '12px', color: B.canvas, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', opacity: importing ? 0.5 : 1 }}>
-                {importing ? 'Importing…' : `Import ${rows.length} Attendees`}
+              <button onClick={checkDuplicates} disabled={importing} style={{ flex: 2, background: B.chartreuse, border: 'none', borderRadius: '10px', padding: '12px', color: B.canvas, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', opacity: importing ? 0.5 : 1 }}>
+                {`Import ${rows.length} Attendees`}
               </button>
             </div>
+          </div>
+        )}
+
+        {step === 'duplicates' && (
+          <div>
+            <div style={{ fontFamily: font, color: B.cream, fontSize: '14px', marginBottom: '16px' }}>
+              <strong>{duplicates.length}</strong> attendee{duplicates.length !== 1 ? 's' : ''} already exist{duplicates.length === 1 ? 's' : ''} in this event:
+            </div>
+            <div style={{ marginBottom: '16px', maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {duplicates.map((d, i) => (
+                <div key={i} style={{ background: B.surface2, borderRadius: '8px', padding: '10px 14px', fontFamily: font, color: B.cream, fontSize: '14px' }}>
+                  {d.first_name} {d.last_name}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={handleSkipDuplicates} style={{ flex: 1, background: 'none', border: `1px solid ${B.border}`, borderRadius: '10px', padding: '14px', color: B.muted, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', minHeight: '56px' }}>
+                Skip Duplicates
+              </button>
+              <button onClick={handleImportAll} style={{ flex: 1, background: B.chartreuse, border: 'none', borderRadius: '10px', padding: '14px', color: B.canvas, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', minHeight: '56px' }}>
+                Import All
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 'importing' && (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <div style={{ fontFamily: font, color: B.muted, fontSize: '14px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Importing…</div>
           </div>
         )}
 
@@ -271,13 +344,21 @@ export default function EventDetail() {
   const [newBadgeSortOrder, setNewBadgeSortOrder] = useState(0)
   const [savingNewBadge, setSavingNewBadge] = useState(false)
 
+  // Feature 1: Event Notes
+  const [notes, setNotes] = useState('')
+  const [notesSaved, setNotesSaved] = useState(false)
+  const [focusNotes, setFocusNotes] = useState(false)
+
+  // Feature 2: Audit Log
+  const [showAllActivity, setShowAllActivity] = useState(false)
+
   useEffect(() => {
     Promise.all([
       supabase.from('events').select('*').eq('id', eventId).single(),
       supabase.from('badge_types').select('*').eq('event_id', eventId).order('sort_order'),
       supabase.from('attendees').select('*').eq('event_id', eventId).order('last_name'),
     ]).then(([ev, bt, at]) => {
-      if (ev.data) setEvent(ev.data)
+      if (ev.data) { setEvent(ev.data); setNotes(ev.data.notes || '') }
       if (bt.data) setBadgeTypes(bt.data)
       if (at.data) setAttendees(at.data)
     }).catch(err => {
@@ -299,6 +380,19 @@ export default function EventDetail() {
     setEditingAttendee(null)
   }
 
+  // Feature 1: Save notes on blur
+  async function handleNotesSave() {
+    setFocusNotes(false)
+    if (!event) return
+    if (notes === (event.notes || '')) return
+    const { error } = await supabase.from('events').update({ notes }).eq('id', eventId)
+    if (!error) {
+      setEvent(prev => ({ ...prev, notes }))
+      setNotesSaved(true)
+      setTimeout(() => setNotesSaved(false), 2000)
+    }
+  }
+
   const filtered = attendees.filter(a => {
     const q = search.toLowerCase()
     const nm = !q || `${a.first_name} ${a.last_name}`.toLowerCase().includes(q) || (a.email||'').toLowerCase().includes(q)
@@ -316,6 +410,24 @@ export default function EventDetail() {
       in:    attendees.filter(a => a.badge_type_id === bt.id && a.checked_in).length,
     }))
   }
+
+  // Feature 2: Build audit log entries
+  const auditLog = attendees
+    .filter(a => a.checked_in_at)
+    .map(a => {
+      const bt = badgeTypes.find(b => b.id === a.badge_type_id)
+      return {
+        id: a.id,
+        name: `${a.first_name} ${a.last_name}`,
+        badgeName: bt?.display_name || null,
+        badgeColor: bt?.color || null,
+        checkedIn: a.checked_in,
+        checkedInAt: a.checked_in_at,
+      }
+    })
+    .sort((a, b) => new Date(b.checkedInAt) - new Date(a.checkedInAt))
+
+  const displayedLog = showAllActivity ? auditLog : auditLog.slice(0, 50)
 
   async function handleDeleteEvent() {
     setDeleting(true)
@@ -372,11 +484,11 @@ export default function EventDetail() {
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto', padding: '32px 24px' }}>
       {editingAttendee !== null && <AttendeeModal attendee={editingAttendee?.id ? editingAttendee : null} badgeTypes={badgeTypes} eventId={eventId} onSave={onSaved} onClose={() => setEditingAttendee(null)} />}
-      {showCSV && <CSVUpload badgeTypes={badgeTypes} eventId={eventId} onImported={() => { refresh(); setShowCSV(false) }} onClose={() => setShowCSV(false)} />}
+      {showCSV && <CSVUpload badgeTypes={badgeTypes} eventId={eventId} existingAttendees={attendees} onImported={() => { refresh(); setShowCSV(false) }} onClose={() => setShowCSV(false)} />}
 
       {/* Back + title */}
       <button onClick={() => navigate('/admin')} style={{ background: 'none', border: 'none', color: B.muted, fontFamily: font, fontSize: '13px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', marginBottom: '16px', padding: 0 }}>← All Events</button>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '28px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
         <div>
           <div style={{ fontFamily: font, fontWeight: 400, fontSize: '26px', color: B.cream, letterSpacing: '-0.01em' }}>{event.name}</div>
           <div style={{ ...lbl(), marginTop: '4px' }}>
@@ -388,6 +500,50 @@ export default function EventDetail() {
           <button onClick={exportCSV} style={{ ...selStyle, textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: '12px' }}>📤 Export</button>
           <button onClick={() => setEditingAttendee({})} style={{ background: B.chartreuse, border: 'none', borderRadius: '10px', padding: '10px 18px', color: B.canvas, fontFamily: font, fontSize: '12px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>+ Add</button>
         </div>
+      </div>
+
+      {/* Feature 1: Event Notes */}
+      <div style={{ marginBottom: '28px', position: 'relative' }}>
+        <textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          onFocus={() => setFocusNotes(true)}
+          onBlur={handleNotesSave}
+          placeholder="Internal notes (e.g. venue details, VIP contacts...)"
+          style={{
+            width: '100%',
+            background: B.surface,
+            border: `1px solid ${focusNotes ? B.chartreuse : B.border}`,
+            borderRadius: '10px',
+            padding: '12px 14px',
+            color: B.cream,
+            fontSize: '14px',
+            fontFamily: font,
+            fontWeight: 400,
+            outline: 'none',
+            transition: 'border-color 0.15s',
+            minHeight: '60px',
+            resize: 'vertical',
+            lineHeight: 1.5,
+            boxSizing: 'border-box',
+          }}
+        />
+        {notesSaved && (
+          <div style={{
+            position: 'absolute',
+            top: '12px',
+            right: '14px',
+            fontFamily: font,
+            fontSize: '11px',
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: B.chartreuse,
+            pointerEvents: 'none',
+            animation: 'none',
+          }}>
+            Saved
+          </div>
+        )}
       </div>
 
       {/* Stats cards */}
@@ -555,6 +711,70 @@ export default function EventDetail() {
           onMouseLeave={e => e.currentTarget.style.background = 'none'}
         >Delete Event</button>
       </div>
+
+      {/* Feature 2: Activity / Audit Log */}
+      {auditLog.length > 0 && (
+        <div style={{ marginTop: '48px' }}>
+          <div style={{ ...lbl(B.cream), marginBottom: '12px' }}>Activity</div>
+          <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: '12px', overflow: 'hidden' }}>
+            {displayedLog.map((entry, i) => (
+              <div key={`${entry.id}-${i}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: i < displayedLog.length - 1 ? `1px solid ${B.border}` : 'none', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: font, color: B.cream, fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {entry.name}
+                  </div>
+                  {entry.badgeName && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: entry.badgeColor || B.muted, flexShrink: 0 }} />
+                      <span style={{ fontFamily: font, fontSize: '11px', color: B.muted, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                        {entry.badgeName}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                  <span style={{
+                    fontFamily: font,
+                    fontSize: '12px',
+                    letterSpacing: '0.06em',
+                    color: entry.checkedIn ? B.chartreuse : B.muted,
+                  }}>
+                    {entry.checkedIn ? 'Checked In' : 'Undo'}
+                  </span>
+                  <span style={{ fontFamily: font, fontSize: '11px', color: B.muted, whiteSpace: 'nowrap' }}>
+                    {fmtFull(entry.checkedInAt)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {auditLog.length > 50 && !showAllActivity && (
+            <div style={{ textAlign: 'center', marginTop: '12px' }}>
+              <button
+                onClick={() => setShowAllActivity(true)}
+                style={{
+                  background: 'none',
+                  border: `1px solid ${B.border}`,
+                  borderRadius: '10px',
+                  padding: '10px 24px',
+                  color: B.muted,
+                  fontFamily: font,
+                  fontSize: '12px',
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.15s',
+                  minHeight: '56px',
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = B.chartreuse}
+                onMouseLeave={e => e.currentTarget.style.borderColor = B.border}
+              >
+                Show all ({auditLog.length})
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Delete Event Modal */}
       {showDeleteModal && (

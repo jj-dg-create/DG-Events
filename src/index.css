@@ -135,6 +135,15 @@ input, button, select, textarea {
   color: #DEE548;
 }
 
+/* PIN pad shake animation (incorrect PIN) */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: #1D1B1C; }

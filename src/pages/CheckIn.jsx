@@ -476,14 +476,14 @@ function ManagerPanel({ badgeTypes, eventId, attendees, onClose, onRefresh }) {
     <div style={{
       position: 'fixed', inset: 0, zIndex: 50,
       background: 'rgba(29,27,28,0.88)', backdropFilter: 'blur(8px)',
-      display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
     }} onClick={onClose}>
       <div
         className="slide-up"
         style={{
           background: B.canvas, borderTop: `3px solid ${B.chartreuse}`,
-          borderRadius: '20px 20px 0 0', width: '100%', maxWidth: '600px',
-          maxHeight: '85vh', display: 'flex', flexDirection: 'column',
+          borderRadius: '16px', width: '100%', maxWidth: '600px',
+          maxHeight: '90vh', display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
         }}
         onClick={e => e.stopPropagation()}
@@ -553,7 +553,7 @@ function ManagerPanel({ badgeTypes, eventId, attendees, onClose, onRefresh }) {
                   )
                 })}
                 {!query && (
-                  <div style={{ textAlign: 'center', padding: '32px 0', color: 'rgba(254,252,245,0.2)', fontFamily: font, fontSize: '14px' }}>
+                  <div style={{ textAlign: 'center', padding: '32px 0', color: B.muted, fontFamily: font, fontSize: '14px' }}>
                     Type a name to find an attendee
                   </div>
                 )}
@@ -875,6 +875,38 @@ export default function CheckIn() {
 
   const inputRef = useRef(null)
 
+  // ── Session timeout (30 min inactivity lock — check-in screen only) ──────
+  const lastActivity = useRef(Date.now())
+  const [showLock, setShowLock] = useState(false)
+  const [showLockPin, setShowLockPin] = useState(false)
+  const INACTIVITY_MS = 30 * 60 * 1000 // 30 minutes
+
+  // Reset activity timer on user interactions
+  useEffect(() => {
+    function resetActivity() { lastActivity.current = Date.now() }
+    const events = ['pointerdown', 'keydown']
+    events.forEach(e => window.addEventListener(e, resetActivity))
+    const checker = setInterval(() => {
+      if (Date.now() - lastActivity.current > INACTIVITY_MS && !showLock) {
+        setShowLock(true)
+      }
+    }, 10000) // check every 10s
+    return () => {
+      events.forEach(e => window.removeEventListener(e, resetActivity))
+      clearInterval(checker)
+    }
+  }, [showLock])
+
+  function handleLockTap() {
+    setShowLockPin(true)
+  }
+
+  function handleUnlock() {
+    setShowLock(false)
+    setShowLockPin(false)
+    lastActivity.current = Date.now()
+  }
+
   // ── Kiosk fullscreen management ─────────────────────────────────────────
   useEffect(() => {
     if (kioskMode) {
@@ -882,13 +914,15 @@ export default function CheckIn() {
     }
   }, [kioskMode])
 
-  // Listen for fullscreen exit (e.g. Escape key) — sync kiosk state
+  // Listen for fullscreen exit (e.g. Escape key) — try to re-enter once
+  const fsRetrying = useRef(false)
   useEffect(() => {
     function onFsChange() {
-      if (!document.fullscreenElement && kioskMode) {
-        // User pressed Escape to exit fullscreen — keep kiosk mode but re-enter fullscreen
-        // (some browsers block this; if so, just leave it)
-        document.documentElement.requestFullscreen?.().catch(() => {})
+      if (!document.fullscreenElement && kioskMode && !fsRetrying.current) {
+        fsRetrying.current = true
+        document.documentElement.requestFullscreen?.()
+          .catch(() => {})
+          .finally(() => { fsRetrying.current = false })
       }
     }
     document.addEventListener('fullscreenchange', onFsChange)
@@ -950,13 +984,12 @@ export default function CheckIn() {
     const ch = supabase.channel(`att-${selectedEvent.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendees', filter: `event_id=eq.${selectedEvent.id}` }, (p) => {
         setAttendees(prev => {
-          let next = [...prev]
-          if (p.eventType === 'INSERT') next = [...prev, p.new]
-          else if (p.eventType === 'UPDATE') next = prev.map(a => a.id === p.new.id ? p.new : a)
-          else if (p.eventType === 'DELETE') next = prev.filter(a => a.id !== p.old.id)
-          fuseRef.current = new Fuse(next, { keys: ['first_name', 'last_name'], threshold: 0.35, ignoreLocation: true })
-          return next
+          if (p.eventType === 'INSERT') return [...prev, p.new]
+          if (p.eventType === 'UPDATE') return prev.map(a => a.id === p.new.id ? p.new : a)
+          if (p.eventType === 'DELETE') return prev.filter(a => a.id !== p.old.id)
+          return prev
         })
+        // Fuse index rebuild handled by the dedicated attendees useEffect
       }).subscribe()
     return () => supabase.removeChannel(ch)
   }, [selectedEvent?.id])
@@ -968,11 +1001,11 @@ export default function CheckIn() {
     }
   }, [attendees])
 
-  // ── Fuzzy search ───────────────────────────────────────────────────────────
+  // ── Fuzzy search (Fuse index kept current by dedicated attendees useEffect)
   useEffect(() => {
     if (!query.trim() || !fuseRef.current) { setResults([]); return }
     setResults(fuseRef.current.search(query.trim(), { limit: 6 }).map(r => r.item))
-  }, [query, attendees])
+  }, [query])
 
   // ── Smart multi-ticket check-in ────────────────────────────────────────────
   const handleSelect = useCallback(async (attendee) => {
@@ -1069,7 +1102,7 @@ export default function CheckIn() {
     const bt = badgeTypes.find(b => b.id === badgeId) || null
     const { data } = await supabase.from('attendees').insert({
       event_id: selectedEvent.id, first_name: firstName, last_name: lastName,
-      email: email || null, badge_type_id: badgeId || null,
+      email: email?.trim() || null, badge_type_id: badgeId || null,
       checked_in: true, checked_in_at: at, is_walkup: true,
     }).select().single()
     if (data) { setShowWalkup(false); setFlash({ attendee: data, badgeType: bt, status: 'success' }) }
@@ -1085,6 +1118,12 @@ export default function CheckIn() {
       }
     })
   }, [selectedEvent?.id])
+
+  // ── Flash dismiss (memoized to avoid stale closure in FlashScreen timer) ──
+  const handleFlashDismiss = useCallback(() => {
+    setFlash(null)
+    setTimeout(() => inputRef.current?.focus(), 100)
+  }, [])
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   const stats = {
@@ -1104,7 +1143,7 @@ export default function CheckIn() {
       background: B.canvas, overflow: 'hidden',
     }}>
       {/* Overlays */}
-      {flash      && <FlashScreen flash={flash} onDismiss={() => { setFlash(null); setTimeout(() => inputRef.current?.focus(), 100) }} onUndo={handleUndo} />}
+      {flash      && <FlashScreen flash={flash} onDismiss={handleFlashDismiss} onUndo={handleUndo} />}
       {ticketSelector && (
         <TicketSelector
           attendeeName={ticketSelector.name}
@@ -1119,6 +1158,27 @@ export default function CheckIn() {
       {showPin    && !kioskMode && <PinPad correctPin={managerPin} onSuccess={() => { setShowPin(false); setShowManager(true) }} onClose={() => setShowPin(false)} />}
       {showManager && !kioskMode && <ManagerPanel badgeTypes={badgeTypes} eventId={selectedEvent?.id} attendees={attendees} onClose={() => setShowManager(false)} onRefresh={handleRefresh} />}
       {showKioskExit && <KioskExitPin correctPin={managerPin} onSuccess={exitKiosk} onClose={() => setShowKioskExit(false)} />}
+
+      {/* ── Session Lock Overlay ── */}
+      {showLock && !showLockPin && (
+        <div onClick={handleLockTap} style={{
+          position: 'fixed', inset: 0, zIndex: 65,
+          background: B.canvas, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+        }}>
+          <img
+            src="https://assets.cdn.filesafe.space/a8SvpD1b3VlpgBtRabDn/media/69a0cf1e13b8426d4dc4a879.png"
+            alt="David Ghiyam"
+            style={{ width: '64px', height: 'auto', marginBottom: '24px', opacity: 0.8 }}
+          />
+          <div style={{ fontFamily: font, color: B.cream, fontSize: '18px', letterSpacing: '0.06em', opacity: 0.6 }}>
+            Tap to continue
+          </div>
+        </div>
+      )}
+      {showLock && showLockPin && (
+        <PinPad correctPin={managerPin} onSuccess={handleUnlock} onClose={() => setShowLockPin(false)} />
+      )}
 
       {/* ── Kiosk Mode Layout ── */}
       {kioskMode ? (
@@ -1226,14 +1286,14 @@ export default function CheckIn() {
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', textAlign: 'center' }}>
                   <div style={{
                     fontFamily: druk, fontWeight: 500,
-                    color: 'rgba(254,252,245,0.06)',
+                    color: 'rgba(254,252,245,0.1)',
                     fontSize: 'clamp(3rem, 8vw, 5rem)',
                     letterSpacing: '-0.02em',
                     textTransform: 'uppercase',
                     lineHeight: 0.9,
                     marginBottom: '20px',
                   }}>Check In</div>
-                  <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.2)', fontSize: '18px' }}>
+                  <div style={{ fontFamily: font, color: B.muted, fontSize: '18px' }}>
                     Type your name above
                   </div>
                 </div>
@@ -1241,10 +1301,10 @@ export default function CheckIn() {
 
               {query && results.length === 0 && !loadingEvent && (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 0', textAlign: 'center' }}>
-                  <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.4)', fontSize: '20px', marginBottom: '8px' }}>
+                  <div style={{ fontFamily: font, color: B.cream, fontSize: '20px', marginBottom: '8px' }}>
                     No match for "{query}"
                   </div>
-                  <div style={{ ...label(), marginBottom: '4px' }}>Please check your spelling or ask staff for help</div>
+                  <div style={{ ...label(B.muted), marginBottom: '4px' }}>Please check your spelling or ask staff for help</div>
                 </div>
               )}
             </div>
@@ -1258,10 +1318,10 @@ export default function CheckIn() {
               onClick={() => setShowKioskExit(true)}
               style={{
                 background: 'none', border: 'none',
-                color: 'rgba(254,252,245,0.06)',
+                color: B.cream,
                 fontFamily: font, fontSize: '11px',
                 cursor: 'pointer', padding: '8px 12px',
-                letterSpacing: '0.06em',
+                letterSpacing: '0.06em', opacity: 0.15,
               }}
             >
               EXIT
@@ -1328,7 +1388,7 @@ export default function CheckIn() {
               <button onClick={signOut} style={{
                 background: 'none', border: `1px solid ${B.border}`,
                 borderRadius: '10px', padding: '10px 14px', cursor: 'pointer',
-                fontFamily: font, color: 'rgba(254,252,245,0.25)', fontSize: '13px',
+                fontFamily: font, color: B.muted, fontSize: '13px',
               }}>Out</button>
             </div>
           </header>
@@ -1421,20 +1481,20 @@ export default function CheckIn() {
             {/* Empty states */}
             {!query && !loadingEvent && selectedEvent && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', textAlign: 'center' }}>
-                <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.12)', fontSize: '48px', marginBottom: '12px' }}>⌨</div>
-                <div style={{ fontFamily: druk, fontWeight: 500, color: 'rgba(254,252,245,0.08)', fontSize: 'clamp(2rem, 6vw, 3.2rem)', letterSpacing: '-0.02em', textTransform: 'uppercase', lineHeight: 0.9, marginBottom: '14px' }}>Check In</div>
-                <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.25)', fontSize: '16px' }}>Type a name to search</div>
+                <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.15)', fontSize: '48px', marginBottom: '12px' }}>⌨</div>
+                <div style={{ fontFamily: druk, fontWeight: 500, color: 'rgba(254,252,245,0.12)', fontSize: 'clamp(2rem, 6vw, 3.2rem)', letterSpacing: '-0.02em', textTransform: 'uppercase', lineHeight: 0.9, marginBottom: '14px' }}>Check In</div>
+                <div style={{ fontFamily: font, color: B.muted, fontSize: '16px' }}>Type a name to search</div>
                 <div style={{ ...label(), marginTop: '4px' }}>{attendees.length} attendees loaded</div>
               </div>
             )}
 
             {query && results.length === 0 && !loadingEvent && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', textAlign: 'center' }}>
-                <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.2)', fontSize: '36px', marginBottom: '12px' }}>?</div>
-                <div style={{ fontFamily: font, color: 'rgba(254,252,245,0.5)', fontSize: '17px', marginBottom: '4px' }}>
+                <div style={{ fontFamily: font, color: B.muted, fontSize: '36px', marginBottom: '12px' }}>?</div>
+                <div style={{ fontFamily: font, color: B.cream, fontSize: '17px', marginBottom: '4px' }}>
                   No match for "{query}"
                 </div>
-                <div style={{ ...label(), marginBottom: '20px' }}>Name may not be in the system</div>
+                <div style={{ ...label(B.muted), marginBottom: '20px' }}>Name may not be in the system</div>
                 <button onClick={() => setShowWalkup(true)} style={{
                   background: B.chartreuse, color: B.canvas, border: 'none',
                   borderRadius: '10px', padding: '14px 24px',

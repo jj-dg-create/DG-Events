@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -48,6 +48,11 @@ export default function Login() {
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
   const [focusedField, setFocusedField] = useState(null)
+  const navTimeout = useRef(null)
+
+  useEffect(() => {
+    return () => { if (navTimeout.current) clearTimeout(navTimeout.current) }
+  }, [])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -55,7 +60,8 @@ export default function Login() {
     setLoading(true)
     try {
       await signIn(email, password)
-      setTimeout(() => navigate('/checkin', { replace: true }), 400)
+      setLoading(false)
+      navTimeout.current = setTimeout(() => navigate('/checkin', { replace: true }), 400)
     } catch (err) {
       setError(err.message || 'Invalid email or password')
       setLoading(false)
