@@ -1304,8 +1304,7 @@ export default function CheckIn() {
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', textAlign: 'center' }}>
                   <div style={{
                     fontFamily: druk, fontWeight: 500,
-                    color: B.chartreuse,
-                    opacity: 0.35,
+                    color: 'rgba(222, 229, 72, 0.55)',
                     fontSize: 'clamp(3rem, 8vw, 5rem)',
                     letterSpacing: '-0.02em',
                     textTransform: 'uppercase',
