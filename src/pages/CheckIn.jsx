@@ -39,6 +39,16 @@ const label = (color = B.muted) => ({
   letterSpacing: '0.12em', textTransform: 'uppercase', color,
 })
 
+const FUSE_OPTIONS = {
+  keys: [
+    { name: 'first_name', weight: 0.4 },
+    { name: 'last_name', weight: 0.4 },
+    { name: 'email', weight: 0.2 },
+  ],
+  threshold: 0.35,
+  ignoreLocation: true,
+}
+
 const inputStyle = (focused = false) => ({
   width: '100%', background: B.surface,
   border: `1px solid ${focused ? B.chartreuse : B.border}`,
@@ -399,7 +409,7 @@ function ManagerPanel({ badgeTypes, eventId, attendees, onClose, onRefresh }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [editing, setEditing] = useState(null)
-  const fuseRef = useRef(new Fuse(attendees, { keys: ['first_name', 'last_name'], threshold: 0.35 }))
+  const fuseRef = useRef(new Fuse(attendees, FUSE_OPTIONS))
   const [form, setForm] = useState({
     first_name: '', last_name: '', email: '', phone: '',
     badge_type_id: badgeTypes[0]?.id || '', notes: '', checked_in: false,
@@ -407,7 +417,7 @@ function ManagerPanel({ badgeTypes, eventId, attendees, onClose, onRefresh }) {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    fuseRef.current = new Fuse(attendees, { keys: ['first_name', 'last_name'], threshold: 0.35 })
+    fuseRef.current = new Fuse(attendees, FUSE_OPTIONS)
   }, [attendees])
 
   useEffect(() => {
@@ -887,6 +897,12 @@ export default function CheckIn() {
   const [managerPin, setManagerPin]     = useState('1234') // fetched from settings
   const [loadingEvent, setLoadingEvent] = useState(false)
 
+  // Email visibility toggle (staff only, never in kiosk)
+  const [showEmails, setShowEmails] = useState(() => localStorage.getItem('dg_show_emails') === 'true')
+  function toggleEmails() {
+    setShowEmails(p => { const v = !p; localStorage.setItem('dg_show_emails', String(v)); return v })
+  }
+
   // Kiosk mode state
   const [kioskMode, setKioskMode]       = useState(() => localStorage.getItem('dg_kiosk_mode') === 'true')
   const [showKioskExit, setShowKioskExit] = useState(false)
@@ -989,7 +1005,7 @@ export default function CheckIn() {
       if (btRes.data) setBadgeTypes(btRes.data)
       if (atRes.data) {
         setAttendees(atRes.data)
-        fuseRef.current = new Fuse(atRes.data, { keys: ['first_name', 'last_name'], threshold: 0.35, ignoreLocation: true })
+        fuseRef.current = new Fuse(atRes.data, FUSE_OPTIONS)
       }
       setLoadingEvent(false)
     })
@@ -1015,7 +1031,7 @@ export default function CheckIn() {
   // ── Rebuild Fuse index whenever attendees change (check-in, undo, real-time)
   useEffect(() => {
     if (attendees.length > 0) {
-      fuseRef.current = new Fuse(attendees, { keys: ['first_name', 'last_name'], threshold: 0.35, ignoreLocation: true })
+      fuseRef.current = new Fuse(attendees, FUSE_OPTIONS)
     }
   }, [attendees])
 
@@ -1132,7 +1148,7 @@ export default function CheckIn() {
     supabase.from('attendees').select('*').eq('event_id', selectedEvent.id).then(({ data }) => {
       if (data) {
         setAttendees(data)
-        fuseRef.current = new Fuse(data, { keys: ['first_name', 'last_name'], threshold: 0.35, ignoreLocation: true })
+        fuseRef.current = new Fuse(data, FUSE_OPTIONS)
       }
     })
   }, [selectedEvent?.id])
@@ -1377,6 +1393,19 @@ export default function CheckIn() {
             {/* Right controls */}
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
+                onClick={toggleEmails}
+                title="Toggle email visibility in search results"
+                style={{
+                  background: showEmails ? 'rgba(222,229,72,0.1)' : B.surface,
+                  border: `1px solid ${showEmails ? B.chartreuse + '44' : B.border}`,
+                  borderRadius: '10px', padding: '10px 14px', cursor: 'pointer',
+                  fontFamily: font, color: showEmails ? B.chartreuse : B.muted, fontSize: '11px',
+                  letterSpacing: '0.08em', textTransform: 'uppercase',
+                }}
+              >
+                Emails
+              </button>
+              <button
                 onClick={() => setShowPin(true)}
                 title="Manager Mode"
                 style={{
@@ -1472,7 +1501,7 @@ export default function CheckIn() {
                     <div style={{ fontFamily: font, fontWeight: 400, fontSize: '20px', color: B.cream, lineHeight: 1.2 }}>
                       {a.first_name} {a.last_name}
                     </div>
-                    {a.email && <div style={{ ...label(), marginTop: '3px' }}>{a.email}</div>}
+                    {showEmails && !kioskMode && a.email && <div style={{ fontFamily: font, fontSize: '12px', color: B.muted, marginTop: '3px' }}>{a.email}</div>}
                     {a.checked_in && (
                       <div style={{ ...label(B.chartreuse), marginTop: '3px' }}>
                         ✓ Checked in at {fmt(a.checked_in_at)}
