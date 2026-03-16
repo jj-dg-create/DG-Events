@@ -1286,12 +1286,14 @@ export default function CheckIn() {
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', textAlign: 'center' }}>
                   <div style={{
                     fontFamily: druk, fontWeight: 500,
-                    color: 'rgba(254,252,245,0.1)',
+                    color: B.chartreuse,
+                    opacity: 0.15,
                     fontSize: 'clamp(3rem, 8vw, 5rem)',
                     letterSpacing: '-0.02em',
                     textTransform: 'uppercase',
                     lineHeight: 0.9,
                     marginBottom: '20px',
+                    textShadow: '0 0 40px #DEE548, 0 0 80px #DEE548',
                   }}>Check In</div>
                   <div style={{ fontFamily: font, color: B.muted, fontSize: '18px' }}>
                     Type your name above
@@ -1321,7 +1323,7 @@ export default function CheckIn() {
                 color: B.cream,
                 fontFamily: font, fontSize: '11px',
                 cursor: 'pointer', padding: '8px 12px',
-                letterSpacing: '0.06em', opacity: 0.15,
+                letterSpacing: '0.06em',
               }}
             >
               EXIT
