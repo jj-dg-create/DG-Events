@@ -337,7 +337,10 @@ export default function EventDetail() {
   const [editingBadge, setEditingBadge] = useState(null)
   const [badgeEditColor, setBadgeEditColor] = useState('')
   const [badgeEditName, setBadgeEditName] = useState('')
+  const [badgeEditSortOrder, setBadgeEditSortOrder] = useState(0)
   const [savingBadge, setSavingBadge] = useState(false)
+  const [deletingBadge, setDeletingBadge] = useState(false)
+  const [confirmDeleteBadge, setConfirmDeleteBadge] = useState(false)
   const [showAddBadge, setShowAddBadge] = useState(false)
   const [newBadgeName, setNewBadgeName] = useState('')
   const [newBadgeColor, setNewBadgeColor] = useState('#888888')
@@ -443,13 +446,44 @@ export default function EventDetail() {
   async function handleSaveBadge() {
     if (!editingBadge) return
     setSavingBadge(true)
-    const { data, error } = await supabase.from('badge_types').update({ display_name: badgeEditName.trim(), color: badgeEditColor }).eq('id', editingBadge.id).select().single()
+    // Optimistic update
+    const optimistic = { ...editingBadge, display_name: badgeEditName.trim(), color: badgeEditColor, sort_order: badgeEditSortOrder }
+    setBadgeTypes(prev => prev.map(bt => bt.id === editingBadge.id ? optimistic : bt))
+    const { data, error } = await supabase.from('badge_types').update({ display_name: badgeEditName.trim(), color: badgeEditColor, sort_order: badgeEditSortOrder }).eq('id', editingBadge.id).select().single()
     if (error) {
       alert('Error updating badge type: ' + error.message)
+      // Revert optimistic update
+      setBadgeTypes(prev => prev.map(bt => bt.id === editingBadge.id ? editingBadge : bt))
     } else if (data) {
       setBadgeTypes(prev => prev.map(bt => bt.id === data.id ? data : bt))
     }
     setSavingBadge(false)
+    setEditingBadge(null)
+    setConfirmDeleteBadge(false)
+  }
+
+  async function handleDeleteBadge() {
+    if (!editingBadge) return
+    setDeletingBadge(true)
+    // First nullify all attendees referencing this badge type
+    const { error: nullifyError } = await supabase.from('attendees').update({ badge_type_id: null }).eq('badge_type_id', editingBadge.id)
+    if (nullifyError) {
+      alert('Error updating attendees: ' + nullifyError.message)
+      setDeletingBadge(false)
+      return
+    }
+    // Then delete the badge type
+    const { error } = await supabase.from('badge_types').delete().eq('id', editingBadge.id)
+    if (error) {
+      alert('Error deleting badge type: ' + error.message)
+      setDeletingBadge(false)
+      return
+    }
+    // Update local state
+    setBadgeTypes(prev => prev.filter(bt => bt.id !== editingBadge.id))
+    setAttendees(prev => prev.map(a => a.badge_type_id === editingBadge.id ? { ...a, badge_type_id: null } : a))
+    setDeletingBadge(false)
+    setConfirmDeleteBadge(false)
     setEditingBadge(null)
   }
 
@@ -568,15 +602,18 @@ export default function EventDetail() {
           const p = bt.total > 0 ? Math.round(bt.in/bt.total*100) : 0
           return (
             <div key={bt.id} style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: '12px', padding: '16px', position: 'relative' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                <div
-                  onClick={() => { setEditingBadge(bt); setBadgeEditColor(bt.color || '#888888'); setBadgeEditName(bt.display_name) }}
-                  style={{ width: '12px', height: '12px', borderRadius: '50%', background: bt.color, flexShrink: 0, cursor: 'pointer', border: '2px solid rgba(254,252,245,0.15)', transition: 'transform 0.15s' }}
-                  onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.3)'}
-                  onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: bt.color, flexShrink: 0 }} />
+                  <div style={{ ...lbl(), fontSize: '10px' }}>{bt.display_name}</div>
+                </div>
+                <button
+                  onClick={e => { e.stopPropagation(); setEditingBadge(bt); setBadgeEditColor(bt.color || '#888888'); setBadgeEditName(bt.display_name); setBadgeEditSortOrder(bt.sort_order || 0); setConfirmDeleteBadge(false) }}
+                  style={{ background: 'none', border: 'none', color: 'rgba(254,252,245,0.2)', fontSize: '12px', cursor: 'pointer', fontFamily: font, padding: '2px 4px' }}
+                  onMouseEnter={e => e.currentTarget.style.color = B.cream}
+                  onMouseLeave={e => e.currentTarget.style.color = 'rgba(254,252,245,0.2)'}
                   title="Edit badge type"
-                />
-                <div style={{ ...lbl(), fontSize: '10px' }}>{bt.display_name}</div>
+                >✏</button>
               </div>
               <div style={{ fontFamily: font, fontSize: '24px', color: B.cream, lineHeight: 1 }}>
                 {bt.in}<span style={{ color: 'rgba(254,252,245,0.25)', fontSize: '14px' }}>/{bt.total}</span>
@@ -585,19 +622,42 @@ export default function EventDetail() {
                 <div style={{ height: '100%', background: bt.color, borderRadius: '100px', width: `${p}%`, transition: 'width 0.5s ease' }} />
               </div>
               {editingBadge?.id === bt.id && (
-                <div style={{ position: 'absolute', top: 'calc(100% + 8px)', left: '0', zIndex: 40, background: B.surface, border: `1px solid ${B.border}`, borderRadius: '12px', padding: '16px', width: '220px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} onClick={e => e.stopPropagation()}>
+                <div style={{ position: 'absolute', top: 'calc(100% + 8px)', left: '0', zIndex: 40, background: B.surface, border: `1px solid ${B.border}`, borderRadius: '12px', padding: '16px', width: '240px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} onClick={e => e.stopPropagation()}>
                   <div style={{ ...lbl(), marginBottom: '10px' }}>Edit Badge Type</div>
+                  <div style={{ marginBottom: '10px' }}>
+                    <div style={{ ...lbl(), marginBottom: '4px', fontSize: '9px' }}>Display Name</div>
+                    <input value={badgeEditName} onChange={e => setBadgeEditName(e.target.value)} style={{ ...inp(), padding: '8px 10px', fontSize: '13px' }} autoFocus />
+                  </div>
                   <div style={{ marginBottom: '10px' }}>
                     <div style={{ ...lbl(), marginBottom: '4px', fontSize: '9px' }}>Color</div>
                     <input type="color" value={badgeEditColor} onChange={e => setBadgeEditColor(e.target.value)} style={{ width: '100%', height: '36px', border: `1px solid ${B.border}`, borderRadius: '8px', background: B.surface2, cursor: 'pointer', padding: '2px' }} />
                   </div>
                   <div style={{ marginBottom: '12px' }}>
-                    <div style={{ ...lbl(), marginBottom: '4px', fontSize: '9px' }}>Display Name</div>
-                    <input value={badgeEditName} onChange={e => setBadgeEditName(e.target.value)} style={{ ...inp(), padding: '8px 10px', fontSize: '13px' }} />
+                    <div style={{ ...lbl(), marginBottom: '4px', fontSize: '9px' }}>Sort Order</div>
+                    <input type="number" value={badgeEditSortOrder} onChange={e => setBadgeEditSortOrder(parseInt(e.target.value) || 0)} style={{ ...inp(), padding: '8px 10px', fontSize: '13px' }} />
                   </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={() => setEditingBadge(null)} style={{ flex: 1, background: 'none', border: `1px solid ${B.border}`, borderRadius: '8px', padding: '8px', color: B.muted, fontFamily: font, fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>Cancel</button>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                    <button onClick={() => { setEditingBadge(null); setConfirmDeleteBadge(false) }} style={{ flex: 1, background: 'none', border: `1px solid ${B.border}`, borderRadius: '8px', padding: '8px', color: B.muted, fontFamily: font, fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>Cancel</button>
                     <button onClick={handleSaveBadge} disabled={!badgeEditName.trim() || savingBadge} style={{ flex: 1, background: B.chartreuse, border: 'none', borderRadius: '8px', padding: '8px', color: B.canvas, fontFamily: font, fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', opacity: (!badgeEditName.trim() || savingBadge) ? 0.4 : 1 }}>{savingBadge ? 'Saving…' : 'Save'}</button>
+                  </div>
+                  {/* Delete section */}
+                  <div style={{ borderTop: `1px solid ${B.border}`, paddingTop: '10px' }}>
+                    {!confirmDeleteBadge ? (
+                      <button onClick={() => setConfirmDeleteBadge(true)} style={{ background: 'none', border: 'none', color: '#F87171', fontFamily: font, fontSize: '11px', letterSpacing: '0.06em', cursor: 'pointer', padding: '4px 0', opacity: 0.7 }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                        onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}
+                      >Delete Badge Type</button>
+                    ) : (
+                      <div>
+                        <div style={{ fontFamily: font, fontSize: '12px', color: '#F87171', lineHeight: 1.4, marginBottom: '8px' }}>
+                          Delete {editingBadge.display_name}? {(() => { const count = attendees.filter(a => a.badge_type_id === editingBadge.id).length; return count > 0 ? `${count} attendee${count !== 1 ? 's' : ''} will have no badge type.` : 'No attendees affected.' })()}
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button onClick={() => setConfirmDeleteBadge(false)} style={{ flex: 1, background: 'none', border: `1px solid ${B.border}`, borderRadius: '8px', padding: '8px', color: B.muted, fontFamily: font, fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>No</button>
+                          <button onClick={handleDeleteBadge} disabled={deletingBadge} style={{ flex: 1, background: '#DC2626', border: 'none', borderRadius: '8px', padding: '8px', color: B.cream, fontFamily: font, fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', opacity: deletingBadge ? 0.5 : 1 }}>{deletingBadge ? 'Deleting…' : 'Yes, Delete'}</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
