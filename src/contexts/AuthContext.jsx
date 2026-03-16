@@ -22,13 +22,41 @@ export function AuthProvider({ children }) {
   const sessionHandled = useRef(false)
   const lastKnownRole = useRef(null)
 
-  async function fetchProfile(userId) {
+  async function fetchProfile(userId, userEmail) {
     const { data } = await supabase
       .from('profiles')
       .select('role, full_name')
       .eq('id', userId)
       .single()
-    return data
+
+    // If profile exists, return it
+    if (data) return data
+
+    // Profile doesn't exist — new user via magic link.
+    // Check pending_invites for their intended role.
+    let role = 'staff'
+    if (userEmail) {
+      const { data: invite } = await supabase
+        .from('pending_invites')
+        .select('role')
+        .eq('email', userEmail.toLowerCase())
+        .single()
+      if (invite?.role) role = invite.role
+    }
+
+    // Create the profile row
+    const { data: newProfile } = await supabase
+      .from('profiles')
+      .insert({ id: userId, role, email: userEmail })
+      .select('role, full_name')
+      .single()
+
+    // Clean up the pending invite
+    if (userEmail) {
+      await supabase.from('pending_invites').delete().eq('email', userEmail.toLowerCase()).catch(() => {})
+    }
+
+    return newProfile
   }
 
   useEffect(() => {
@@ -44,7 +72,7 @@ export function AuthProvider({ children }) {
       if (session?.user) {
         setUser(session.user)
         try {
-          const profile = await fetchProfile(session.user.id)
+          const profile = await fetchProfile(session.user.id, session.user.email)
           if (!mounted || id !== fetchCounter.current) return
           const newRole = profile?.role || 'staff'
           setRole(newRole)
