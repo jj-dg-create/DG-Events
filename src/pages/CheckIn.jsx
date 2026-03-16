@@ -321,6 +321,15 @@ function PinPad({ onSuccess, onClose, correctPin }) {
 
   function del() { setEntered(p => p.slice(0, -1)) }
 
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key >= '0' && e.key <= '9') press(e.key)
+      else if (e.key === 'Backspace') del()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   const keys = ['1','2','3','4','5','6','7','8','9','','0','⌫']
 
   return (
@@ -790,6 +799,15 @@ function KioskExitPin({ correctPin, onSuccess, onClose }) {
   }
 
   function del() { setEntered(p => p.slice(0, -1)) }
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key >= '0' && e.key <= '9') press(e.key)
+      else if (e.key === 'Backspace') del()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   const keys = ['1','2','3','4','5','6','7','8','9','','0','⌫']
 
@@ -1287,7 +1305,7 @@ export default function CheckIn() {
                   <div style={{
                     fontFamily: druk, fontWeight: 500,
                     color: B.chartreuse,
-                    opacity: 0.12,
+                    opacity: 0.35,
                     fontSize: 'clamp(3rem, 8vw, 5rem)',
                     letterSpacing: '-0.02em',
                     textTransform: 'uppercase',
