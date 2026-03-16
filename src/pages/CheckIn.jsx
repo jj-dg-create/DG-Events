@@ -1287,13 +1287,12 @@ export default function CheckIn() {
                   <div style={{
                     fontFamily: druk, fontWeight: 500,
                     color: B.chartreuse,
-                    opacity: 0.15,
+                    opacity: 0.12,
                     fontSize: 'clamp(3rem, 8vw, 5rem)',
                     letterSpacing: '-0.02em',
                     textTransform: 'uppercase',
                     lineHeight: 0.9,
                     marginBottom: '20px',
-                    textShadow: '0 0 40px #DEE548, 0 0 80px #DEE548',
                   }}>Check In</div>
                   <div style={{ fontFamily: font, color: B.muted, fontSize: '18px' }}>
                     Type your name above
