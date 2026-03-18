@@ -355,15 +355,23 @@ export default function EventDetail() {
   // Feature 2: Audit Log
   const [showAllActivity, setShowAllActivity] = useState(false)
 
+  // CheckoutPage Integration
+  const [checkoutMapping, setCheckoutMapping] = useState(null) // { id, checkoutpage_page_id }
+  const [newPageId, setNewPageId] = useState('')
+  const [savingMapping, setSavingMapping] = useState(false)
+  const [mappingCopied, setMappingCopied] = useState(false)
+
   useEffect(() => {
     Promise.all([
       supabase.from('events').select('*').eq('id', eventId).single(),
       supabase.from('badge_types').select('*').eq('event_id', eventId).order('sort_order'),
       supabase.from('attendees').select('*').eq('event_id', eventId).order('last_name'),
-    ]).then(([ev, bt, at]) => {
+      supabase.from('checkout_mappings').select('id, checkoutpage_page_id').eq('event_id', eventId).maybeSingle(),
+    ]).then(([ev, bt, at, cm]) => {
       if (ev.data) { setEvent(ev.data); setNotes(ev.data.notes || '') }
       if (bt.data) setBadgeTypes(bt.data)
       if (at.data) setAttendees(at.data)
+      if (cm.data) setCheckoutMapping(cm.data)
     }).catch(err => {
       console.error('Failed to load event data:', err)
     }).finally(() => {
@@ -507,6 +515,36 @@ export default function EventDetail() {
     const rows = [['First Name','Last Name','Email','Phone','Badge Type','Checked In','Time','Walk-Up','Notes'], ...attendees.map(a => { const bt = badgeTypes.find(b => b.id === a.badge_type_id); return [a.first_name, a.last_name, a.email||'', a.phone||'', bt?.display_name||'', a.checked_in?'Yes':'No', a.checked_in_at ? new Date(a.checked_in_at).toLocaleString() : '', a.is_walkup?'Yes':'No', a.notes||''] })]
     const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n')
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'})); a.download = `${(event?.name||'event').replace(/\s+/g,'_')}_attendees.csv`; a.click()
+  }
+
+  // CheckoutPage mapping handlers
+  async function handleAddMapping() {
+    if (!newPageId.trim()) return
+    setSavingMapping(true)
+    const { data, error } = await supabase.from('checkout_mappings').insert({ checkoutpage_page_id: newPageId.trim(), event_id: eventId }).select().single()
+    if (error) {
+      alert('Error adding mapping: ' + error.message)
+    } else if (data) {
+      setCheckoutMapping(data)
+      setNewPageId('')
+    }
+    setSavingMapping(false)
+  }
+
+  async function handleDeleteMapping() {
+    if (!checkoutMapping) return
+    const { error } = await supabase.from('checkout_mappings').delete().eq('id', checkoutMapping.id)
+    if (error) {
+      alert('Error removing mapping: ' + error.message)
+    } else {
+      setCheckoutMapping(null)
+    }
+  }
+
+  function copyWebhookUrl() {
+    navigator.clipboard?.writeText('https://eswcudkptloxexjzecpe.supabase.co/functions/v1/checkoutpage-webhook')
+    setMappingCopied(true)
+    setTimeout(() => setMappingCopied(false), 2000)
   }
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', fontFamily: font, color: 'rgba(254,252,245,0.2)', fontSize: '14px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Loading…</div>
@@ -761,6 +799,53 @@ export default function EventDetail() {
                 </div>
               )
             })}
+          </div>
+        )}
+      </div>
+
+      {/* CheckoutPage Integration */}
+      <div style={{ marginTop: '48px', paddingTop: '24px', borderTop: `1px solid ${B.border}` }}>
+        <div style={{ ...lbl(B.cream), marginBottom: '8px' }}>CheckoutPage Integration</div>
+        <div style={{ fontFamily: font, color: B.muted, fontSize: '13px', marginBottom: '16px', lineHeight: 1.5 }}>
+          Connect a CheckoutPage event page so ticket purchases automatically appear as attendees.
+        </div>
+
+        {checkoutMapping ? (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: '10px', padding: '12px 16px', flex: 1 }}>
+                <div style={lbl()}>Page ID</div>
+                <div style={{ fontFamily: font, color: B.cream, fontSize: '14px', marginTop: '4px', wordBreak: 'break-all' }}>{checkoutMapping.checkoutpage_page_id}</div>
+              </div>
+              <button onClick={handleDeleteMapping} style={{ background: 'none', border: `1px solid rgba(180,40,40,0.3)`, borderRadius: '10px', padding: '10px 16px', color: '#F87171', fontFamily: font, fontSize: '12px', letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer', flexShrink: 0 }}>Remove</button>
+            </div>
+            <div style={{ marginBottom: '8px' }}>
+              <div style={lbl()}>Webhook URL (paste in CheckoutPage)</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                <code style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", fontSize: '12px', color: B.cream, background: B.surface, border: `1px solid ${B.border}`, borderRadius: '8px', padding: '10px 14px', flex: 1, wordBreak: 'break-all', lineHeight: 1.4 }}>
+                  https://eswcudkptloxexjzecpe.supabase.co/functions/v1/checkoutpage-webhook
+                </code>
+                <button onClick={copyWebhookUrl} style={{ background: B.surface, border: `1px solid ${mappingCopied ? B.chartreuse : B.border}`, borderRadius: '8px', padding: '10px 14px', color: mappingCopied ? B.chartreuse : B.muted, fontFamily: font, fontSize: '11px', letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s' }}>
+                  {mappingCopied ? '✓ Copied' : 'Copy'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ ...lbl(), marginBottom: '6px' }}>CheckoutPage Page ID</div>
+              <input
+                value={newPageId}
+                onChange={e => setNewPageId(e.target.value)}
+                placeholder="6983f9f5acc2b76ad850ad76"
+                style={inp()}
+                onKeyDown={e => e.key === 'Enter' && handleAddMapping()}
+              />
+            </div>
+            <button onClick={handleAddMapping} disabled={!newPageId.trim() || savingMapping} style={{ background: B.chartreuse, border: 'none', borderRadius: '10px', padding: '12px 20px', color: B.canvas, fontFamily: font, fontSize: '12px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', opacity: (!newPageId.trim() || savingMapping) ? 0.4 : 1, minHeight: '48px', flexShrink: 0 }}>
+              {savingMapping ? 'Saving…' : 'Add Mapping'}
+            </button>
           </div>
         )}
       </div>
